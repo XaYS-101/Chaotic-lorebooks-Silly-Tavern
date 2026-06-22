@@ -16,9 +16,9 @@
 //
 // Метки: 🟡 мёрж · 🟢 чтение. Деградация: нет LLM → код-дедуп по точному совпадению.
 
-import { getSettings } from './settings.js';
-import { casWrite, ENTRY_TEMPLATE } from './lorebook-writer.js';
-import { getBoundBookName } from './lorebook-service.js';
+import { getSettings } from '../core/settings.js';
+import { casWrite, ENTRY_TEMPLATE } from '../lorebook/lorebook-writer.js';
+import { getBoundBookName } from '../lorebook/lorebook-service.js';
 import { entityKey } from './entity-extract.js';
 import { stem } from './text-relevance.js';
 import { log as logActivity } from './activity-log.js';
@@ -193,8 +193,8 @@ export async function addTriples(payload) {
 
 /** Дешёвая ИИ: эквивалентен ли новый триплет одному из кандидатов? */
 async function decideMerge(triple, candidates) {
-  const { agentRequest, parseJsonLoose } = await import('./llm-service.js');
-  const { noteLlmCall } = await import('./job-queue.js');
+  const { agentRequest, parseJsonLoose } = await import('../llm/llm-service.js');
+  const { noteLlmCall } = await import('../core/job-queue.js');
   const list = candidates.map((e, i) => `${i}: ${e.from} —${e.rel}→ ${e.to}`).join('\n');
   const system = 'You merge relationship facts in a knowledge graph. Decide if the NEW '
     + 'fact expresses the SAME relationship as one of the EXISTING ones (semantic, '

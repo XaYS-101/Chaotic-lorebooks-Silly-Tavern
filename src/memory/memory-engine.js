@@ -14,13 +14,13 @@
 //
 // Метки: каркас ядра 🟢; Compose-проход 🟡 с откатом.
 
-import { getSettings } from './settings.js';
-import { renderToc } from './tree-store.js';
-import { retrieveWithReason, updateBufferFromScene } from './agents.js';
+import { getSettings } from '../core/settings.js';
+import { renderToc } from '../lorebook/tree-store.js';
+import { retrieveWithReason, updateBufferFromScene } from '../llm/agents.js';
 import { renderForInjection as renderRecollection } from './recollection.js';
 import { loadGraph, neighborhood, serializeSubgraph } from './knowledge-graph.js';
 import { entitiesInWindow } from './entity-extract.js';
-import { agentRequest } from './llm-service.js';
+import { agentRequest } from '../llm/llm-service.js';
 
 // Кэш ядра прошлой сборки. Сбрасывается на смене чата и запечатывании арки
 // (см. index.js), иначе переживёт статичную сцену и переиспользуется.

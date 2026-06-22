@@ -10,8 +10,8 @@
 // Метки: 🟡 (нужен LLM). Деградация встроена.
 
 import { agentRequest, parseJsonLoose } from './llm-service.js';
-import { renderToc, getBranchContent } from './tree-store.js';
-import { upsertItem } from './thought-buffer.js';
+import { renderToc, getBranchContent } from '../lorebook/tree-store.js';
+import { upsertItem } from '../memory/thought-buffer.js';
 
 function recentChatText(n = 6) {
   const chat = SillyTavern.getContext().chat ?? [];

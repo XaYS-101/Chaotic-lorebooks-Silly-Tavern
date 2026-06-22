@@ -12,7 +12,8 @@
 //     железное правило #1 (standalone-книга работает сама).
 //   - world_names НЕ на context; берём из globalThis либо из DOM-селекта #world_info.
 
-import { t } from './i18n.js';
+import { t } from '../core/i18n.js';
+import { getSettings } from '../core/settings.js';
 
 // Наш «информационный» ключ (для миграции/ясности). Реальную активацию даёт NATIVE_KEY.
 const BIND_KEY = 'chaoticLorebooks_book';
@@ -68,14 +69,19 @@ function fillTemplate(tpl) {
 }
 
 /**
- * Гарантировать привязанную книгу. Если её нет и askOnFirstUse — показать попап
- * на три варианта. Возвращает имя книги или null (если отмена).
+ * Гарантировать привязанную книгу.
+ *   interactive=true (дефолт): если книги нет и askOnFirstUse — показать попап
+ *     (существующая / новая / отмена). Зовётся на ЯВНЫХ действиях юзера (заметка,
+ *     промоут избранного), поэтому книга создаётся «позже» — при первой записи, а
+ *     не на первом сообщении.
+ *   interactive=false: без попапа, сразу тихо создать по шаблону (фоновые записи).
+ * Возвращает имя книги или null (если отмена).
  */
-export async function ensureBook(settings) {
+export async function ensureBook(settings, { interactive = true } = {}) {
   const existing = getBoundBook();
   if (existing) return existing;
 
-  if (!settings.askOnFirstUse) {
+  if (!interactive || !settings.askOnFirstUse) {
     return createAndBind(fillTemplate(settings.lorebookNameTemplate));
   }
 
@@ -84,6 +90,16 @@ export async function ensureBook(settings) {
   if (!choice) return null;                 // отмена
   if (choice.type === 'existing') { await bindBook(choice.name); return choice.name; }
   return createAndBind(choice.name);
+}
+
+/**
+ * Тихо гарантировать книгу для ФОНОВОЙ записи (без попапа). Зовётся writer'ом,
+ * когда пришла первая реальная энтри, а книги ещё нет → создаём по шаблону.
+ */
+export async function ensureBookForWrite() {
+  const existing = getBoundBook();
+  if (existing) return existing;
+  return ensureBook(getSettings(), { interactive: false });
 }
 
 async function createAndBind(name) {

@@ -169,6 +169,13 @@
   border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
 }
 .cl-status span { white-space: nowrap; }
+/* Пер-чатовый тумблер (▶ активно / ⏸ выключено для чата) */
+.cl-chat-pill {
+  cursor: pointer; user-select: none; opacity: 0.9;
+  padding: 0 4px; border-radius: 4px;
+}
+.cl-chat-pill:hover { opacity: 1; background: var(--black30a, rgba(255,255,255,0.08)); }
+.cl-chat-pill.cl-chat-off { opacity: 0.5; }
 
 /* Свёртываемые секции вкладки Memory */
 .cl-section { margin: 6px 0; }

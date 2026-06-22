@@ -14,12 +14,12 @@
 // Зовётся ТОЛЬКО из обработчика job 'arc-extract' (autonomous). Деградация: LLM
 // вернул null → арка не обрабатывается, очередь повторит (до 3 раз), чат не страдает.
 
-import { getSettings } from './settings.js';
-import { agentRequest, parseJsonLoose } from './llm-service.js';
-import { noteLlmCall, enqueue } from './job-queue.js';
+import { getSettings } from '../core/settings.js';
+import { agentRequest, parseJsonLoose } from '../llm/llm-service.js';
+import { noteLlmCall, enqueue } from '../core/job-queue.js';
 import { getArc, arcText, setSummaryGist, setArcSignificance } from './arc-segmenter.js';
 import { addGist } from './recollection.js';
-import { enqueueWrite } from './lorebook-writer.js';
+import { enqueueWrite } from '../lorebook/lorebook-writer.js';
 import { extractEntities } from './entity-extract.js';
 import { loadGraph } from './knowledge-graph.js';
 import { scoreSignificance } from './deep-extractor.js';

@@ -15,8 +15,8 @@
 // Сверено с ST: createWorldInfoEntry/createNewWorldInfo НЕ на context → реплицируем
 // шаблон энтри (newWorldInfoEntryDefinition) и свободный uid здесь.
 
-import { getBoundBookName } from './lorebook-service.js';
-import { contentTokens } from './text-relevance.js';
+import { getBoundBookName, ensureBookForWrite } from './lorebook-service.js';
+import { contentTokens } from '../memory/text-relevance.js';
 
 function ctx() { return SillyTavern.getContext(); }
 
@@ -131,7 +131,8 @@ function findDup(data, patch, keys) {
 export function casWrite(name, mutate) {
   return withLock(async () => {
     await waitIfDeferred();
-    const book = name || getBoundBookName();
+    // Ленивое создание книги: первая РЕАЛЬНАЯ запись создаёт книгу (отложенный старт).
+    const book = name || getBoundBookName() || await ensureBookForWrite();
     if (!book) return false;
     let data;
     try { data = await ctx().loadWorldInfo(book); } catch { data = null; }

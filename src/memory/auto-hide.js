@@ -12,9 +12,9 @@
 //
 // Метки: 🟢 (без LLM; манипуляция флагом + DOM-атрибутом существующих .mes).
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { getSealedArcs } from './arc-segmenter.js';
-import { getFavorites } from './favorites.js';
+import { getFavorites } from '../inject/favorites.js';
 
 const HIDDEN_KEY = 'chaoticLorebooks_hidden';
 const WM_KEY = 'chaoticLorebooks_watermark';

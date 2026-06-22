@@ -13,7 +13,7 @@
 //
 // Зеркалит store/persist/cap из deep-extractor (тот же проверенный паттерн).
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 
 const ACTIVITY_KEY = 'chaoticLorebooks_activity';
 const ACTIVITY_CAP = 100;   // жёсткий backstop; пользовательский лимит — activityLog.maxEntries

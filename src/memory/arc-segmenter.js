@@ -7,7 +7,7 @@
 //
 // Метки: 🟢 (нарезка по маркерам/cap — без LLM; «где резать на cap» — опц. джоба).
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { contentTokens, jaccard } from './text-relevance.js';
 
 const ARCS_KEY = 'chaoticLorebooks_arcs';

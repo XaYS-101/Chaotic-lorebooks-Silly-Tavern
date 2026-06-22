@@ -15,11 +15,11 @@
 //
 // Метки: 🟢 значимость/allow-list (код) · 🟡 дрейф (опц. LLM, через drift-monitor).
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { loadGraph } from './knowledge-graph.js';
 import { extractEntities, entityKey } from './entity-extract.js';
 import { stem } from './text-relevance.js';
-import { enqueue } from './job-queue.js';
+import { enqueue } from '../core/job-queue.js';
 import { checkDriftCheap } from './drift-monitor.js';
 import { log as logActivity } from './activity-log.js';
 

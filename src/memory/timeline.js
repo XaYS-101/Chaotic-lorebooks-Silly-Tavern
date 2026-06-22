@@ -12,11 +12,11 @@
 // перезаписью снимаем safety-снапшот 'pre-restore', поэтому отмену можно отменить.
 // Запись в книгу — только через backup.restore() (никаких прямых saveWorldInfo).
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { getLog, log as logActivity } from './activity-log.js';
 import {
   listSnapshots, restore as restoreSnapshot, safetySnapshot, snapshot,
-} from './backup.js';
+} from '../lorebook/backup.js';
 
 /**
  * Единая хронология: события активности + точки восстановления (снапшоты).

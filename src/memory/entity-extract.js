@@ -11,7 +11,7 @@
 //
 // Метки: 🟢 базово, 🟡 опционально. Деградация встроена.
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { contentTokens, stem } from './text-relevance.js';
 
 function ctx() { return SillyTavern.getContext(); }
@@ -88,8 +88,8 @@ export async function classifyTypes(entities, contextText = '') {
   if (entities.every((e) => e.type && e.type !== 'unknown')) return entities;
 
   try {
-    const { agentRequest, parseJsonLoose } = await import('./llm-service.js');
-    const { noteLlmCall } = await import('./job-queue.js');
+    const { agentRequest, parseJsonLoose } = await import('../llm/llm-service.js');
+    const { noteLlmCall } = await import('../core/job-queue.js');
     const names = entities.map((e) => e.name);
     const system = 'Classify each entity by type for a roleplay knowledge graph. '
       + 'Types: character | location | faction | item. If unsure, use "character" for '

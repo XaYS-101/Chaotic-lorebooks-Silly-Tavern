@@ -214,6 +214,9 @@ const STRINGS = {
     'toast.arcSealed': 'Arc ${id} sealed',
     'toast.nothingToSeal': 'Nothing settled to seal yet',
     'toast.hiddenRevealed': 'Hidden messages revealed',
+    'toast.chatOn': 'Chaotic Lorebooks: on for this chat',
+    'toast.chatOff': 'Chaotic Lorebooks: off for this chat',
+    'ui.chat.title': 'Toggle Chaotic Lorebooks for this chat',
     'toast.noteSaved': 'Note saved to lorebook',
     'toast.noteNoBook': 'No bound lorebook — note not saved',
     'toast.noteFail': 'Could not save note to lorebook',
@@ -242,6 +245,7 @@ const STRINGS = {
     'cmd.buffer': 'Show the thought buffer',
     'cmd.arc': 'Seal the current arc now (explicit scene break)',
     'cmd.reveal': 'Reveal all auto-hidden messages',
+    'cmd.chat': 'Toggle Chaotic Lorebooks on/off for the current chat',
   },
 
   ru: {
@@ -445,6 +449,9 @@ const STRINGS = {
     'toast.arcSealed': 'Арка ${id} запечатана',
     'toast.nothingToSeal': 'Пока нечего запечатывать',
     'toast.hiddenRevealed': 'Скрытые сообщения возвращены',
+    'toast.chatOn': 'Chaotic Lorebooks: включено для этого чата',
+    'toast.chatOff': 'Chaotic Lorebooks: выключено для этого чата',
+    'ui.chat.title': 'Включить/выключить Chaotic Lorebooks для этого чата',
     'toast.noteSaved': 'Заметка сохранена в книгу',
     'toast.noteNoBook': 'Нет привязанной книги — заметка не сохранена',
     'toast.noteFail': 'Не удалось сохранить заметку в книгу',
@@ -473,6 +480,7 @@ const STRINGS = {
     'cmd.buffer': 'Показать буфер мыслей',
     'cmd.arc': 'Запечатать текущую арку (явная смена сцены)',
     'cmd.reveal': 'Показать все авто-скрытые сообщения',
+    'cmd.chat': 'Включить/выключить Chaotic Lorebooks для текущего чата',
   },
 };
 

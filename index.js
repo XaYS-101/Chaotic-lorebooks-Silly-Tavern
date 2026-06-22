@@ -1,43 +1,43 @@
 // index.js — ТОНКИЙ оркестратор. Только init, проводка событий и регистрация
 // точек входа. Вся логика — в модулях.
 
-import { getSettings, saveSettings, MODULE_NAME } from './settings.js';
-import { ensureBook } from './lorebook-service.js';
-import { injectContext } from './injector.js';
-import { decayTick } from './thought-buffer.js';
-import { toggleFavorite, isFav, addQuote } from './favorites.js';
-import { toggleDrawer, ensureDrawer } from './tree-ui.js';
-import { renderSettingsPanel } from './settings-panel.js';
-import { reset as resetScene } from './scene-detector.js';
-import { resetCache as resetMemoryCache } from './memory-engine.js';
-import { log as logActivity } from './activity-log.js';
+import { getSettings, saveSettings, MODULE_NAME } from './src/core/settings.js';
+import { injectContext } from './src/inject/injector.js';
+import { isChatEnabled, toggleChatEnabled } from './src/core/chat-state.js';
+import { decayTick } from './src/memory/thought-buffer.js';
+import { toggleFavorite, isFav, addQuote } from './src/inject/favorites.js';
+import { toggleDrawer, ensureDrawer } from './src/ui/tree-ui.js';
+import { renderSettingsPanel } from './src/core/settings-panel.js';
+import { reset as resetScene } from './src/memory/scene-detector.js';
+import { resetCache as resetMemoryCache } from './src/memory/memory-engine.js';
+import { log as logActivity } from './src/memory/activity-log.js';
 // --- Фаза A — фундамент ---
-import { onMessage as arcOnMessage, onEdit as arcOnEdit, reset as resetArc, sealReady } from './arc-segmenter.js';
-import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from './auto-hide.js';
-import { resumeAfterRestart, registerHandler, enqueue } from './job-queue.js';
-import { noteUserEditing } from './lorebook-writer.js';
-import { snapshot as backupSnapshot } from './backup.js';
+import { onMessage as arcOnMessage, onEdit as arcOnEdit, reset as resetArc, sealReady } from './src/memory/arc-segmenter.js';
+import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from './src/memory/auto-hide.js';
+import { resumeAfterRestart, registerHandler, enqueue } from './src/core/job-queue.js';
+import { noteUserEditing } from './src/lorebook/lorebook-writer.js';
+import { snapshot as backupSnapshot } from './src/lorebook/backup.js';
 // --- Фаза B — извлечение + граф + ярусы ---
-import { summarizeArc } from './arc-summary.js';
-import { addTriples, invalidateArc } from './knowledge-graph.js';
+import { summarizeArc } from './src/memory/arc-summary.js';
+import { addTriples, invalidateArc } from './src/memory/knowledge-graph.js';
 // --- Фаза C — глубокое извлечение (allow-list + значимость + дрейф) ---
-import { extractArc } from './deep-extractor.js';
+import { extractArc } from './src/memory/deep-extractor.js';
 // --- Фаза D — дорогой кросс-арочный аудит дрейфа ---
-import { runAudit, noteSettledForAudit } from './drift-monitor.js';
+import { runAudit, noteSettledForAudit } from './src/memory/drift-monitor.js';
 // --- branch-guard — изоляция памяти при форке чата ---
-import { maybeHandleFork } from './branch-guard.js';
+import { maybeHandleFork } from './src/lorebook/branch-guard.js';
 // --- global-reconciler — изоляция, когда наша книга активна глобально ---
-import { maybeHandleGlobal } from './global-reconciler.js';
+import { maybeHandleGlobal } from './src/lorebook/global-reconciler.js';
 // --- i18n — EN/RU локализация UI/тостов/слэш-команд ---
-import { t } from './i18n.js';
+import { t } from './src/core/i18n.js';
 
 // --- Глобальный перехватчик промпта (имя совпадает с manifest) ---
 // Вызывается ДО запроса генерации: тут мы собираем и вкладываем контекст.
 globalThis.chaoticLorebooks_interceptor = async function (chat, contextSize, abort, type) {
   try {
     const s = getSettings();
-    if (!s.enabled) return;
-    await ensureBook(s);        // при первом запуске — попап выбора книги
+    if (!s.enabled || !isChatEnabled()) return;   // мастер-тумблер ИЛИ выключено для этого чата
+    // Книгу тут БОЛЬШЕ НЕ создаём — лениво при первой реальной записи (см. lorebook-writer).
     await injectContext(type);  // type: свайпы → кэш; quiet → пропуск; см. injector
   } catch (e) {
     console.warn('[ChaoticLorebooks] interceptor error:', e);
@@ -90,7 +90,7 @@ const warn = (e) => console.warn('[ChaoticLorebooks]', e);
 /** Один устоявшийся ход: продвинуть арку; на запечатывании — скрыть пласт + снапшот + извлечение. */
 async function onSettledTurn() {
   const s = getSettings();
-  if (!s.enabled) return;
+  if (!s.enabled || !isChatEnabled()) return;
   const sealed = await arcOnMessage();
   if (sealed) {
     resetMemoryCache();                 // §4b: новая арка → кэш ядра устарел, пересоберём на сдвиге
@@ -108,6 +108,7 @@ async function onSettledTurn() {
 
 /** Правка старого соо: гейт опечаток в арк-сегментере; существенная → откат+переизвлечение. */
 async function onEditedTurn(idx) {
+  if (!isChatEnabled()) return;
   const arc = await arcOnEdit(idx);     // null если опечатка / правка в живом окне
   if (!arc) return;
   const s = getSettings();
@@ -205,6 +206,16 @@ function registerSlashCommands(ctx) {
     name: `${p}-reveal`,
     callback: async () => { await autoHideRevealAll(); globalThis.toastr?.success?.(t('toast.hiddenRevealed')); return ''; },
     helpString: t('cmd.reveal'),
+  }));
+  // Включить/выключить расширение для ТЕКУЩЕГО чата (инъекция + фоновая память).
+  SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+    name: `${p}-chat`,
+    callback: async () => {
+      const on = await toggleChatEnabled();
+      globalThis.toastr?.[on ? 'success' : 'info']?.(on ? t('toast.chatOn') : t('toast.chatOff'));
+      return '';
+    },
+    helpString: t('cmd.chat'),
   }));
 }
 

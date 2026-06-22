@@ -6,7 +6,7 @@
 // Хранилище: chatMetadata['chaoticLorebooks_backups'] — массив {id,at,reason,book,data}.
 // Ограничено backup.keepCount, чтобы метаданные не раздувались. Всё 🟢.
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { getBoundBookName } from './lorebook-service.js';
 
 const BACKUP_KEY = 'chaoticLorebooks_backups';

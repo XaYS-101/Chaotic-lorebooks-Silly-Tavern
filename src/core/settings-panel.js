@@ -89,13 +89,17 @@ function coerce(type, el) {
 }
 
 export async function renderSettingsPanel() {
-  const ctx = SillyTavern.getContext();
   let html;
   try {
-    html = await ctx.renderExtensionTemplateAsync('third-party/chaotic-lorebooks', 'settings', {});
-  } catch {
-    // ⚠FLAG: если шаблонизатор недоступен — тянем файл напрямую.
-    html = await (await fetch('/scripts/extensions/third-party/chaotic-lorebooks/settings.html')).text();
+    // Грузим settings.html ОТНОСИТЕЛЬНО самого модуля (import.meta.url), а НЕ по
+    // хардкод-имени папки: ST ставит расширение в third-party/<имя-репо>
+    // (= Chaotic-lorebooks-Silly-Tavern), а не «chaotic-lorebooks», поэтому прежний
+    // путь ломался и панель была пустой. settings-panel.js лежит в src/core/ →
+    // settings.html в корне расширения = на два уровня выше.
+    html = await (await fetch(new URL('../../settings.html', import.meta.url))).text();
+  } catch (e) {
+    console.warn('[ChaoticLorebooks] settings.html load failed:', e);
+    return;
   }
   const container = document.getElementById('extensions_settings2')
     || document.getElementById('extensions_settings');

@@ -12,7 +12,7 @@
 //
 // Метки: 🟢. Зависит только от настроек + метаданных (recollection).
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { getGists } from './recollection.js';
 
 // --- Отчёт последней сборки (читает UI для индикатора здоровья памяти) ---

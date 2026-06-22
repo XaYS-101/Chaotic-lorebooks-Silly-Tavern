@@ -8,7 +8,7 @@
 //
 // Метки: 🟢. Зависит только от настроек и метаданных.
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 
 const KEY = 'chaoticLorebooks_recollection';
 

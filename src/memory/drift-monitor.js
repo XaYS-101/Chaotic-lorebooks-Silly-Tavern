@@ -13,7 +13,7 @@
 
 import { stem } from './text-relevance.js';
 import { entityKey } from './entity-extract.js';
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { log as logActivity } from './activity-log.js';
 
 function relStem(rel) { return stem(String(rel || 'related').toLowerCase()); }
@@ -126,8 +126,8 @@ function dedupe(flags) {
 
 /** Дешёвая ИИ: новый факт ПРОТИВОРЕЧИТ старому или это естественное развитие? */
 async function adjudicate(t, exEdge) {
-  const { agentRequest, parseJsonLoose } = await import('./llm-service.js');
-  const { noteLlmCall } = await import('./job-queue.js');
+  const { agentRequest, parseJsonLoose } = await import('../llm/llm-service.js');
+  const { noteLlmCall } = await import('../core/job-queue.js');
   const system = 'You audit a roleplay knowledge graph for CONTRADICTIONS. Decide if the '
     + 'NEW relationship fact contradicts the EXISTING one, or is natural character '
     + 'development (evolution is NOT a contradiction). '
@@ -142,8 +142,8 @@ async function adjudicate(t, exEdge) {
 
 /** Один дешёвый проход по всей арке против окрестности (режим 'full'). */
 async function fullDriftPass(triples, graph, arcId) {
-  const { agentRequest, parseJsonLoose } = await import('./llm-service.js');
-  const { noteLlmCall } = await import('./job-queue.js');
+  const { agentRequest, parseJsonLoose } = await import('../llm/llm-service.js');
+  const { noteLlmCall } = await import('../core/job-queue.js');
   const { neighborhood, serializeSubgraph } = await import('./knowledge-graph.js');
   const names = [...new Set(triples.flatMap((t) => [t.from, t.to]).filter(Boolean).map(String))];
   const ids = neighborhood(graph, names, 1);
@@ -276,8 +276,8 @@ function summarize(flags) {
 
 /** Один дешёвый проход по всем спорным парам графа (тон-флипы). */
 async function auditPass(graph, ambiguous) {
-  const { agentRequest, parseJsonLoose } = await import('./llm-service.js');
-  const { noteLlmCall } = await import('./job-queue.js');
+  const { agentRequest, parseJsonLoose } = await import('../llm/llm-service.js');
+  const { noteLlmCall } = await import('../core/job-queue.js');
   const name = (id) => graph.nodes?.[id]?.name || id;
   const lines = ambiguous.map(({ e1, e2 }, i) =>
     `${i}: ${name(e1.from)} —${e1.rel}→ ${name(e1.to)}  VS  ${name(e2.from)} —${e2.rel}→ ${name(e2.to)}`).join('\n');

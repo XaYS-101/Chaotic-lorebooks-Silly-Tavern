@@ -24,10 +24,10 @@
 //     → ST сам обновит selected_world_info, сохранит и эмитнет WORLDINFO_SETTINGS_UPDATED.
 //   - копия книги делается через lorebook-service.forkBook (он же ребиндит чат).
 
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings } from '../core/settings.js';
 import { getBoundBookName, forkBook, deriveBranchBookName } from './lorebook-service.js';
-import { log as logActivity } from './activity-log.js';
-import { t } from './i18n.js';
+import { log as logActivity } from '../memory/activity-log.js';
+import { t } from '../core/i18n.js';
 
 const HANDLED_CAP = 200;   // сколько разобранных чатов помним (rolling)
 

@@ -3,7 +3,7 @@
 //
 // Пункт: { id, text, kind:'goal|trait|lore|thread', subject, importance(1-3), weight, lastSeen }
 
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 import { contentTokens, stem } from './text-relevance.js';
 
 const META_KEY = 'chaoticLorebooks_buffer';

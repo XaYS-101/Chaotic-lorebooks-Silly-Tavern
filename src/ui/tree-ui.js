@@ -7,25 +7,26 @@
 //
 // Метки: 🟢. Цвета берём из темы ST (CSS-переменные), не хардкодим.
 
-import { t } from './i18n.js';
-import { buildTree } from './tree-store.js';
-import { getBuffer, removeItem as removeBufItem } from './thought-buffer.js';
+import { t } from '../core/i18n.js';
+import { buildTree } from '../lorebook/tree-store.js';
+import { getBuffer, removeItem as removeBufItem } from '../memory/thought-buffer.js';
 import {
   getFavorites, removeFavorite, editText, setEnabled, setPinned, setMode, saveAsEntry,
-} from './favorites.js';
-import { getSettings, saveSettings } from './settings.js';
-import { getBoundBookName } from './lorebook-service.js';
-import { getSealedArcs, sealReady } from './arc-segmenter.js';
-import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from './auto-hide.js';
+} from '../inject/favorites.js';
+import { getSettings, saveSettings } from '../core/settings.js';
+import { getBoundBookName, ensureBook } from '../lorebook/lorebook-service.js';
+import { isChatEnabled, toggleChatEnabled } from '../core/chat-state.js';
+import { getSealedArcs, sealReady } from '../memory/arc-segmenter.js';
+import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from '../memory/auto-hide.js';
 import {
   getGists, setActive as setRecActive, bulkSetArc, removeGist,
-} from './recollection.js';
-import { getStats as graphStats } from './knowledge-graph.js';
-import { getDriftFlags, resolveDriftFlag } from './deep-extractor.js';
-import { runAudit } from './drift-monitor.js';
-import { getLastReport, autoReview, review } from './context-budget.js';
-import { clearLog as clearActivityLog } from './activity-log.js';
-import { buildTimeline, restoreTo, snapshotNow } from './timeline.js';
+} from '../memory/recollection.js';
+import { getStats as graphStats } from '../memory/knowledge-graph.js';
+import { getDriftFlags, resolveDriftFlag } from '../memory/deep-extractor.js';
+import { runAudit } from '../memory/drift-monitor.js';
+import { getLastReport, autoReview, review } from '../memory/context-budget.js';
+import { clearLog as clearActivityLog } from '../memory/activity-log.js';
+import { buildTimeline, restoreTo, snapshotNow } from '../memory/timeline.js';
 
 let drawerEl = null;
 let savedFilter = 'all';   // all | message | quote
@@ -89,11 +90,20 @@ async function refreshStatus() {
   const rep = getLastReport();
   const memSeg = (s.contextBudget?.enabled && rep && rep.target)
     ? `<span title="${ta('ui.title.budgetUsed')}">🧮 ${budgetPct(rep)}%</span>` : '';
-  el.innerHTML = `<span>${escapeHtml(s.mode)}</span>
+  const on = isChatEnabled();
+  const chatPill = `<span id="cl-chat-toggle" class="cl-chat-pill${on ? '' : ' cl-chat-off'}" title="${ta('ui.chat.title')}">${on ? '▶' : '⏸'}</span>`;
+  el.innerHTML = `${chatPill}
+    <span>${escapeHtml(s.mode)}</span>
     <span>${book ? '📖 ✓' : '📖 ✗'}</span>
     <span>${t('ui.status.arcs', { n: arcs })}</span>
     <span id="cl-status-graph">· …</span>
     ${memSeg}`;
+  // пер-чатовый тумблер: клик → переключить и перерисовать статус
+  el.querySelector('#cl-chat-toggle')?.addEventListener('click', async () => {
+    const nowOn = await toggleChatEnabled();
+    globalThis.toastr?.[nowOn ? 'success' : 'info']?.(nowOn ? t('toast.chatOn') : t('toast.chatOff'));
+    refreshStatus();
+  });
   // узлы графа читаются из книги (async) — дольём отдельно
   try {
     const { nodes } = await graphStats();
@@ -423,7 +433,9 @@ function wireMemory(body) {
     const text = input?.value?.trim();
     if (!text) return;
     try {
-      const { enqueueWrite } = await import('./lorebook-writer.js');
+      // Явное действие юзера → можно показать попап выбора книги (если askOnFirstUse).
+      await ensureBook(getSettings());
+      const { enqueueWrite } = await import('../lorebook/lorebook-writer.js');
       const ok = await enqueueWrite({
         origin: 'author-note', tier: 'foundation',
         content: text, treePath: 'Author notes',

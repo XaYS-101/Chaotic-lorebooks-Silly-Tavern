@@ -10,9 +10,10 @@
 //   chance    — с шансом всплывает как воспоминание (глубина 3-4)
 //   relevant  — инжектится, когда релевантно сцене (алгоритм; v1: решает ИИ)
 
-import { getSettings } from './settings.js';
-import { contentTokens, bm25Rank } from './text-relevance.js';
-import { t } from './i18n.js';
+import { getSettings } from '../core/settings.js';
+import { contentTokens, bm25Rank } from '../memory/text-relevance.js';
+import { ensureBook } from '../lorebook/lorebook-service.js';
+import { t } from '../core/i18n.js';
 
 function recentQueryTokens() {
   return (ctx().chat ?? []).slice(-4).flatMap((m) => contentTokens(m.mes));
@@ -77,9 +78,11 @@ export async function saveAsEntry(id) {
   const f = find(id); if (!f) return false;
   f.pinned = true; f.enabled = true; f.mode = 'permanent';
   await persist();
+  // Явное действие юзера → можно показать попап выбора книги (если askOnFirstUse).
+  await ensureBook(getSettings());
   // Записываем как закреплённую (origin=user) энтри через единственную очередь.
   try {
-    const { enqueueWrite } = await import('./lorebook-writer.js');
+    const { enqueueWrite } = await import('../lorebook/lorebook-writer.js');
     await enqueueWrite({
       origin: 'user', tier: 'pinned',
       content: f.text,

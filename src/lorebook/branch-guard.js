@@ -14,11 +14,11 @@
 //   - признак ветки/чекпойнта: chat_metadata.main_chat = имя родительского чата.
 //   - на форке metadata = {...chat_metadata, ...{main_chat}} → наследуется world_info.
 
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings } from '../core/settings.js';
 import { getBoundBookName, forkBook, deriveBranchBookName } from './lorebook-service.js';
-import { reconcileArcsToChat } from './arc-segmenter.js';
-import { log as logActivity } from './activity-log.js';
-import { t } from './i18n.js';
+import { reconcileArcsToChat } from '../memory/arc-segmenter.js';
+import { log as logActivity } from '../memory/activity-log.js';
+import { t } from '../core/i18n.js';
 
 const MAIN_CHAT_KEY = 'main_chat';   // нативный маркер ветки/чекпойнта в chat_metadata
 const HANDLED_CAP = 200;             // сколько обработанных веток помним (rolling)

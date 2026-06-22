@@ -9,14 +9,14 @@
 //
 // Метки: каркас инъекции 🟢; ветка scout 🟡 с откатом.
 
-import { getSettings } from './settings.js';
-import { renderForInjection as renderBuffer } from './thought-buffer.js';
+import { getSettings } from '../core/settings.js';
+import { renderForInjection as renderBuffer } from '../memory/thought-buffer.js';
 import { renderForInjection as renderFavs, getRelevantInjection, pickResurfaceText } from './favorites.js';
-import { tickBuffer, applyScenePenalty } from './thought-buffer.js';
-import { evaluate as evalScene } from './scene-detector.js';
-import { maintain as autoHideMaintain } from './auto-hide.js';
-import { buildCore } from './memory-engine.js';
-import { fitBudget, setLastReport } from './context-budget.js';
+import { tickBuffer, applyScenePenalty } from '../memory/thought-buffer.js';
+import { evaluate as evalScene } from '../memory/scene-detector.js';
+import { maintain as autoHideMaintain } from '../memory/auto-hide.js';
+import { buildCore } from '../memory/memory-engine.js';
+import { fitBudget, setLastReport } from '../memory/context-budget.js';
 
 const INJECT_KEY = 'chaoticLorebooks';
 let lastText = '';   // кэш последней сборки — переиспользуем на свайпах

@@ -3,7 +3,7 @@
 // чувствительности. Решает: будить ли дешёвого агента и применять ли пенальти буферу.
 
 import { contentTokens, jaccard } from './text-relevance.js';
-import { getSettings } from './settings.js';
+import { getSettings } from '../core/settings.js';
 
 let turn = 0;
 let lastWakeTurn = 0;
