@@ -1,0 +1,281 @@
+/* Chaotic Lorebooks — стили. Цвета только из темы ST (var(--SmartTheme...)),
+   ничего не хардкодим. Mobile-first: на узком экране дровер во всю ширину. */
+
+.cl-hidden { display: none !important; }
+
+/* Попап выбора книги: ряды «радио + контрол» в линию, mobile-friendly. */
+.cl-choose .cl-choose-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+.cl-choose .cl-choose-row select,
+.cl-choose .cl-choose-row input[type="text"] {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+/* Звезда избранного на сообщении */
+.cl-star {
+  cursor: pointer;
+  opacity: 0.35;
+  font-size: 1em;
+  padding: 4px;            /* тач-таргет */
+  min-width: 28px;
+  text-align: center;
+  color: var(--SmartThemeBodyColor);
+  transition: opacity 0.15s;
+}
+.cl-star:hover { opacity: 0.7; }
+.cl-star-on { opacity: 1; color: var(--SmartThemeQuoteColor, gold); }
+
+/* Выезжающее дерево */
+.cl-drawer {
+  position: fixed;
+  top: 0; right: 0;
+  height: 100vh;
+  width: 360px;
+  max-width: calc(100vw - 32px);     /* мобайл: почти во всю ширину */
+  background: var(--SmartThemeBlurTintColor, var(--black50a, rgba(0,0,0,0.85)));
+  color: var(--SmartThemeBodyColor);
+  border-left: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(10px);
+  box-shadow: -4px 0 20px rgba(0,0,0,0.4);
+}
+
+.cl-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+}
+.cl-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--SmartThemeBodyColor); font-size: 1.1em;
+  min-width: 40px; min-height: 40px;     /* тач-таргет */
+}
+
+.cl-tabs { display: flex; gap: 4px; padding: 8px; }
+.cl-tab {
+  flex: 1; padding: 10px 6px; cursor: pointer;
+  background: var(--black30a, rgba(255,255,255,0.06));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid transparent; border-radius: 8px;
+  min-height: 40px;
+}
+.cl-tab-active {
+  border-color: var(--SmartThemeQuoteColor, #8ab4f8);
+  background: var(--black50a, rgba(255,255,255,0.12));
+}
+
+.cl-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+.cl-empty { opacity: 0.6; font-size: 0.9em; }
+
+/* Узлы дерева */
+.cl-node { margin: 4px 0; }
+.cl-node > summary {
+  cursor: pointer; padding: 8px 4px; min-height: 36px;
+  border-radius: 6px;
+}
+.cl-node > summary:hover { background: var(--black30a, rgba(255,255,255,0.06)); }
+.cl-count { opacity: 0.5; font-size: 0.8em; }
+.cl-entry {
+  padding: 6px 8px 6px 22px; font-size: 0.9em; opacity: 0.85;
+  border-left: 2px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+  margin-left: 8px;
+}
+
+/* Добавление заметки */
+.cl-addnote { display: flex; gap: 6px; margin-top: 12px; }
+.cl-addnote input {
+  flex: 1; padding: 10px; min-height: 40px;
+  background: var(--black30a, rgba(0,0,0,0.3));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+  border-radius: 6px;
+}
+.cl-addnote button, .cl-rm {
+  padding: 0 12px; min-height: 40px; cursor: pointer;
+  background: var(--SmartThemeQuoteColor, #5b7bd4); color: #fff;
+  border: none; border-radius: 6px;
+}
+
+/* Пункты буфера и избранного */
+.cl-bufitem, .cl-favitem {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px; margin: 4px 0;
+  background: var(--black30a, rgba(255,255,255,0.05));
+  border-radius: 6px; font-size: 0.9em;
+}
+.cl-bufitem span:first-child, .cl-favitem span:first-child { flex: 1; }
+.cl-weight { opacity: 0.5; font-size: 0.8em; }
+.cl-rm { min-width: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--SmartThemeBodyColor); opacity: 0.6; }
+.cl-rm:hover { opacity: 1; }
+
+/* Кнопка в меню расширений */
+#cl-wand { cursor: pointer; }
+
+/* Редактор сохранённых вырезок (вкладка Saved) */
+.cl-savedrow {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; margin: 6px 0; border-radius: 8px;
+  background: var(--black30a, rgba(255,255,255,0.05));
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
+}
+.cl-savedrow.cl-disabled { opacity: 0.5; }
+.cl-saved-text {
+  width: 100%; min-height: 48px; resize: vertical;
+  background: var(--black30a, rgba(0,0,0,0.3));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+  border-radius: 6px; padding: 6px; font-size: 0.88em;
+}
+.cl-saved-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.cl-saved-actions button {
+  min-width: 40px; min-height: 36px; cursor: pointer;
+  background: var(--black30a, rgba(255,255,255,0.08));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid transparent; border-radius: 6px;
+}
+.cl-saved-actions button.cl-on {
+  border-color: var(--SmartThemeQuoteColor, gold);
+}
+
+/* Пульс звезды при сохранении цитаты */
+.cl-star-pulse { animation: cl-pulse 0.4s ease; }
+@keyframes cl-pulse { 0%{transform:scale(1)} 50%{transform:scale(1.6); color:var(--SmartThemeQuoteColor,gold)} 100%{transform:scale(1)} }
+
+/* Селектор режима инъекции в редакторе */
+.cl-mode {
+  min-height: 36px; border-radius: 6px; padding: 0 4px;
+  background: var(--black30a, rgba(255,255,255,0.08));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+}
+
+/* ===== Фаза B — статус, секции, чипы, воспоминания, арки ===== */
+
+/* Компактная строка статуса под шапкой */
+.cl-status {
+  display: flex; flex-wrap: wrap; gap: 4px 10px;
+  padding: 6px 14px; font-size: 0.78em; opacity: 0.75;
+  border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
+}
+.cl-status span { white-space: nowrap; }
+
+/* Свёртываемые секции вкладки Memory */
+.cl-section { margin: 6px 0; }
+.cl-section > summary {
+  cursor: pointer; padding: 10px 6px; min-height: 40px;
+  font-weight: 600; border-radius: 6px;
+  background: var(--black30a, rgba(255,255,255,0.05));
+}
+.cl-section > summary:hover { background: var(--black50a, rgba(255,255,255,0.1)); }
+.cl-section-body { padding: 6px 2px 2px; }
+
+/* Фильтр-чипы во вкладке Saved */
+.cl-chips { display: flex; gap: 6px; margin-bottom: 8px; }
+.cl-chip {
+  flex: 1; min-height: 34px; cursor: pointer; padding: 4px 8px;
+  background: var(--black30a, rgba(255,255,255,0.06));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid transparent; border-radius: 14px; font-size: 0.85em;
+}
+.cl-chip-on {
+  border-color: var(--SmartThemeQuoteColor, #8ab4f8);
+  background: var(--black50a, rgba(255,255,255,0.12));
+}
+
+/* Воспоминания (ярус 2) */
+.cl-gist {
+  padding: 8px; margin: 6px 0; border-radius: 8px;
+  background: var(--black30a, rgba(255,255,255,0.05));
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
+}
+.cl-gist.cl-disabled { opacity: 0.5; }
+.cl-gist-text { font-size: 0.9em; }
+.cl-gist-quote {
+  font-size: 0.82em; opacity: 0.8; font-style: italic;
+  padding-left: 8px; margin-top: 2px;
+  border-left: 2px solid var(--SmartThemeQuoteColor, rgba(255,255,255,0.2));
+}
+.cl-gist-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+.cl-gist-actions button {
+  min-width: 36px; min-height: 32px; cursor: pointer;
+  background: var(--black30a, rgba(255,255,255,0.08));
+  color: var(--SmartThemeBodyColor); border: 1px solid transparent; border-radius: 6px;
+}
+
+/* Арки */
+.cl-arc-controls { display: flex; gap: 6px; margin-bottom: 8px; }
+.cl-arc-controls button {
+  flex: 1; min-height: 36px; cursor: pointer;
+  background: var(--black30a, rgba(255,255,255,0.08));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15)); border-radius: 6px;
+}
+.cl-arc {
+  padding: 8px; margin: 6px 0; border-radius: 8px;
+  background: var(--black30a, rgba(255,255,255,0.05));
+}
+.cl-arc-title { display: flex; align-items: center; gap: 6px; font-size: 0.9em; }
+.cl-arc-gist { font-size: 0.84em; opacity: 0.8; margin: 4px 0; }
+.cl-arc-forget {
+  min-height: 30px; padding: 0 10px; cursor: pointer; font-size: 0.82em;
+  background: transparent; color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2)); border-radius: 6px;
+}
+.cl-dirty {
+  font-size: 0.72em; padding: 1px 6px; border-radius: 10px;
+  background: var(--SmartThemeQuoteColor, #c9803a); color: #fff;
+}
+
+/* Фаза C — бейдж значимости арки + секция дрейфа */
+.cl-sig { font-size: 0.9em; }
+.cl-sig-hi { color: var(--SmartThemeQuoteColor, #e0b341); }
+.cl-sig-lo { opacity: 0.4; }
+.cl-drift {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 4px;
+  border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.08));
+}
+.cl-drift.cl-disabled { opacity: 0.45; }
+.cl-drift-kind { font-size: 1em; flex: 0 0 auto; }
+.cl-drift-text { flex: 1 1 auto; font-size: 0.84em; min-width: 0; }
+.cl-drift-text > div:first-child { word-break: break-word; }
+.cl-drift-detail { opacity: 0.6; font-size: 0.92em; margin-top: 2px; }
+
+/* Фаза D — бюджет контекста: индикатор здоровья памяти + разбивка по ярусам */
+.cl-budget { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.cl-budget-bar {
+  flex: 1; height: 8px; border-radius: 4px; overflow: hidden;
+  background: var(--black30a, rgba(255,255,255,0.1));
+}
+.cl-budget-fill {
+  height: 100%; border-radius: 4px;
+  background: var(--SmartThemeQuoteColor, #5b9bd4);
+  transition: width 0.2s;
+}
+.cl-budget-fill.cl-budget-over { background: var(--SmartThemeQuoteColor, #d46b5b); opacity: 0.9; }
+.cl-budget-num { font-size: 0.78em; opacity: 0.8; white-space: nowrap; }
+.cl-budget-row {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 0.82em; padding: 2px 4px;
+}
+.cl-budget-row.cl-budget-over { color: var(--SmartThemeQuoteColor, #d46b5b); opacity: 0.85; }
+
+/* Свёрнутые под-секции в панели настроек Advanced (анти-«простыня») */
+.chaotic-lorebooks-settings .cl-sub { margin: 4px 0; }
+.chaotic-lorebooks-settings .cl-sub > summary {
+  cursor: pointer; padding: 8px 4px; min-height: 36px; font-weight: 600;
+}
+.chaotic-lorebooks-settings .cl-sub[open] > summary {
+  border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
+  margin-bottom: 6px;
+}

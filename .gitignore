@@ -1,0 +1,9 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Logs / deps (not used by this client-only extension, but guard anyway)
+node_modules/
+*.log

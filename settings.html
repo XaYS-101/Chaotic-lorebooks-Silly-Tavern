@@ -1,0 +1,188 @@
+<div class="chaotic-lorebooks-settings">
+  <div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+      <b data-cl-i18n="set.title">🌀 Chaotic Lorebooks</b>
+      <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content">
+
+      <!-- BASIC: всё, что нужно большинству -->
+      <label class="checkbox_label">
+        <input type="checkbox" id="cl-enabled">
+        <span data-cl-i18n="set.enable">Enable</span>
+      </label>
+
+      <label><span data-cl-i18n="set.lang">Interface language</span>
+        <select id="cl-ui-language">
+          <option value="auto" data-cl-i18n="set.lang.auto">Auto (follow SillyTavern)</option>
+          <option value="en" data-cl-i18n="set.lang.en">English</option>
+          <option value="ru" data-cl-i18n="set.lang.ru">Русский</option>
+        </select>
+      </label>
+
+      <label><span data-cl-i18n="set.mode">Mode</span>
+        <select id="cl-mode">
+          <option value="lite" data-cl-i18n="set.mode.lite">Lite — no background LLM (cheapest)</option>
+          <option value="balanced" data-cl-i18n="set.mode.balanced">Balanced — agent retrieval</option>
+          <option value="autonomous" data-cl-i18n="set.mode.autonomous">Autonomous — full memory (background worker)</option>
+        </select>
+      </label>
+      <small id="cl-mode-hint" class="cl-hint"></small>
+
+      <!-- ADVANCED: спрятано, чтобы не перегружать -->
+      <div class="inline-drawer cl-advanced">
+        <div class="inline-drawer-toggle inline-drawer-header">
+          <b data-cl-i18n="set.advanced">Advanced</b>
+          <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+          <!-- каждая тема — свёрнутая под-секция, чтобы Advanced не «простыня» -->
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.agent">Background agent</summary>
+            <small data-cl-i18n="set.agent.note">Cheap/fast model gathers memory; your main model writes the reply.</small>
+            <label><span data-cl-i18n="set.agent.profile">Agent Connection Profile</span>
+              <select id="cl-agent-profile"><option value="" data-cl-i18n="set.agent.profileDefault">(current connection)</option></select>
+            </label>
+            <label><span data-cl-i18n="set.agent.retrieval">Retrieval mode</span>
+              <select id="cl-retrieval-mode">
+                <option value="recency" data-cl-i18n="set.agent.retrieval.cheap">Cheap (recency + ToC)</option>
+                <option value="agent" data-cl-i18n="set.agent.retrieval.agent">Agent scout (LLM picks branches)</option>
+              </select>
+            </label>
+            <label><span data-cl-i18n="set.agent.everyN">Run agent every N turns</span> <input type="number" id="cl-agent-n" min="1" max="20"></label>
+            <label><span data-cl-i18n="set.agent.sceneSens">Scene sensitivity (0–1, wakes agent on shift)</span> <input type="number" id="cl-scene-sens" min="0" max="1" step="0.05"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.lore">Lorebook</summary>
+            <label class="checkbox_label">
+              <input type="checkbox" id="cl-ask"><span data-cl-i18n="set.lore.ask">Ask which lorebook on first use</span>
+            </label>
+            <label><span data-cl-i18n="set.lore.newName">New lorebook name</span> <input type="text" id="cl-tpl"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.branch">Branching</summary>
+            <small data-cl-i18n="set.branch.note">When you branch a chat, it shares the original's lorebook. Give the branch its own copy so memory written on one timeline doesn't overwrite the other.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-branch-enabled"><span data-cl-i18n="set.branch.handle">Handle branched chats</span></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-branch-ask"><span data-cl-i18n="set.branch.ask">Ask on each branch</span></label>
+            <label><span data-cl-i18n="set.branch.default">If not asking, default to</span>
+              <select id="cl-branch-action">
+                <option value="fork" data-cl-i18n="set.branch.fork">Fork — own book</option>
+                <option value="share" data-cl-i18n="set.branch.share">Share — original's book</option>
+              </select>
+            </label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.global">Global lorebook</summary>
+            <small data-cl-i18n="set.global.note">If the book this chat writes memory to is also in your globally active World Info, this chat's events leak into every other chat. I can give this chat a private copy, or drop the book from the global set.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-global-enabled"><span data-cl-i18n="set.global.handle">Handle a globally-active memory book</span></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-global-ask"><span data-cl-i18n="set.global.ask">Ask when detected</span></label>
+            <label><span data-cl-i18n="set.branch.default">If not asking, default to</span>
+              <select id="cl-global-action">
+                <option value="copy" data-cl-i18n="set.global.copy">Copy — private book for this chat</option>
+                <option value="disable" data-cl-i18n="set.global.disable">Disable global — keep only here</option>
+                <option value="share" data-cl-i18n="set.global.keep">Keep — leave it globally shared</option>
+              </select>
+            </label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.buf">Thought buffer</summary>
+            <label class="checkbox_label"><input type="checkbox" id="cl-buf-enabled"><span data-cl-i18n="set.buf.enable">Enable buffer</span></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-buf-limit"><span data-cl-i18n="set.buf.limit">Limit size</span></label>
+            <label><span data-cl-i18n="set.buf.max">Max items</span> <input type="number" id="cl-buf-max" min="1" max="50"></label>
+            <label><span data-cl-i18n="set.buf.decay">Decay per turn</span> <input type="number" id="cl-buf-decay" min="1" max="5"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.rec">Memory tiers (recollection)</summary>
+            <small data-cl-i18n="set.rec.note">Sealed arcs are condensed into short "recollections" (tier 2) injected above the live window. Extraction runs in Autonomous mode.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-rec-enabled"><span data-cl-i18n="set.rec.enable">Enable recollections</span></label>
+            <label><span data-cl-i18n="set.rec.max">Max active recollections</span> <input type="number" id="cl-rec-max" min="1" max="50"></label>
+            <label><span data-cl-i18n="set.rec.quotes">Verbatim quotes per arc</span> <input type="number" id="cl-rec-quotes" min="0" max="6"></label>
+            <label><span data-cl-i18n="set.budgetTokens">Injection budget (tokens)</span> <input type="number" id="cl-rec-budget" min="100" max="3000" step="50"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.graph">Knowledge graph</summary>
+            <small data-cl-i18n="set.graph.note">Entities &amp; relationships (tier 3) merged from arcs; a small subgraph around the current scene is injected. Built in Autonomous mode; injection itself uses no LLM.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-graph-enabled"><span data-cl-i18n="set.graph.enable">Enable relationship graph</span></label>
+            <label><span data-cl-i18n="set.graph.maxNodes">Max nodes (older ones archive)</span> <input type="number" id="cl-graph-maxnodes" min="5" max="200"></label>
+            <label><span data-cl-i18n="set.graph.hops">Subgraph hops around scene</span> <input type="number" id="cl-graph-hops" min="1" max="4"></label>
+            <label><span data-cl-i18n="set.budgetTokens">Injection budget (tokens)</span> <input type="number" id="cl-graph-budget" min="100" max="5000" step="50"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.deep">Deep extraction &amp; drift</summary>
+            <small data-cl-i18n="set.deep.note">Validates extracted facts against a strict entity allow-list (anti-hallucination), scores each arc's significance (important arcs pin, filler fades), and flags contradictions for review. Runs in Autonomous mode; flags appear in Memory → Drift.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-deep-enabled"><span data-cl-i18n="set.deep.enable">Enable deep extraction</span></label>
+            <label><span data-cl-i18n="set.deep.reasoning">Drift / significance reasoning</span>
+              <select id="cl-deep-llmmode">
+                <option value="code" data-cl-i18n="set.deep.code">Code only — no LLM (free)</option>
+                <option value="hybrid" data-cl-i18n="set.deep.hybrid">Hybrid — code + cheap AI on ambiguous (recommended)</option>
+                <option value="full" data-cl-i18n="set.deep.full">Full — one cheap LLM pass per arc</option>
+              </select>
+            </label>
+            <label><span data-cl-i18n="set.deep.pin">Auto-pin significance (0–1, ≥ pins arc)</span> <input type="number" id="cl-deep-pin" min="0" max="1" step="0.05"></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-drift-enabled"><span data-cl-i18n="set.deep.flagDrift">Flag drift (contradictions)</span></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-drift-audit"><span data-cl-i18n="set.deep.audit">Periodic cross-arc audit (one LLM pass)</span></label>
+            <label><span data-cl-i18n="set.deep.auditN">Audit every N settled turns</span> <input type="number" id="cl-drift-audit-n" min="50" max="5000" step="50"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.cb">Context budget</summary>
+            <small data-cl-i18n="set.cb.note">One hard token ceiling over ALL injected memory (buffer + favorites + recollections + graph + ToC). Fills by tier priority; on overflow it condenses (drops whole lines, never mid-sentence) and lowest-priority tiers drop first. Pure code, no LLM. Off → each tier uses its own budget with no global cap. See Memory → Memory budget for the health bar.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-cb-enabled"><span data-cl-i18n="set.cb.cap">Cap total injected memory</span></label>
+            <label><span data-cl-i18n="set.cb.target">Target (tokens for all memory)</span> <input type="number" id="cl-cb-target" min="500" max="20000" step="100"></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-cb-autoreview"><span data-cl-i18n="set.cb.autoreview">Auto-suggest review when budget is full</span></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.pipe">Two-stage pipeline (§4b)</summary>
+            <small data-cl-i18n="set.pipe.note">Stage-1 memory engine: the cheap agent assembles the memory core (recollections + graph + retrieval) and hands the writer (your normal model) only a distillate. The core is cached per scene — on a static scene it is reused and only the cheap buffer/favorites refresh, saving work. Off → injection behaves exactly as before (fresh build every turn). Enabled automatically in Autonomous.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-pipeline-enabled"><span data-cl-i18n="set.pipe.engine">Scene-gated memory engine + core cache</span></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-pipeline-compose"><span data-cl-i18n="set.pipe.compose">Compose/compress core with the cheap AI (one extra LLM call on scene shifts)</span></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.resurface">Resurfacing</summary>
+            <label class="checkbox_label"><input type="checkbox" id="cl-resurface"><span data-cl-i18n="set.resurface.enable">Resurface saved clips as memories</span></label>
+            <label><span data-cl-i18n="set.resurface.chance">Chance per turn</span> <input type="number" id="cl-resurface-chance" min="0" max="1" step="0.05"></label>
+            <label><span data-cl-i18n="set.resurface.depth">Inject depth (3-4 = near recent)</span> <input type="number" id="cl-resurface-depth" min="1" max="10"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.arcs">Arcs &amp; auto-hide</summary>
+            <small data-cl-i18n="set.arcs.note">Old messages are sealed into arcs and hidden in slabs to keep the active window small.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-autohide-enabled"><span data-cl-i18n="set.arcs.autohide">Auto-hide old messages</span></label>
+            <label><span data-cl-i18n="set.arcs.window">Visible window (messages)</span> <input type="number" id="cl-autohide-window" min="2" max="200"></label>
+            <label><span data-cl-i18n="set.arcs.keepTail">Keep bridge from newest hidden slab</span> <input type="number" id="cl-autohide-keeptail" min="0" max="10"></label>
+            <label><span data-cl-i18n="set.arcs.cap">Arc length cap (messages)</span> <input type="number" id="cl-arc-cap" min="5" max="200"></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-arc-markers"><span data-cl-i18n="set.arcs.markers">Use scene-break markers (/cl-arc, ***)</span></label>
+            <label><span data-cl-i18n="set.arcs.editThresh">Edit dirty threshold (0–1, below = typo)</span> <input type="number" id="cl-arc-editthresh" min="0" max="1" step="0.05"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.tl">Timeline &amp; activity</summary>
+            <small data-cl-i18n="set.tl.note">Memory → Timeline shows one chronological feed: background work (arc seals, extraction, graph merges, drift, audits) plus restore points from Backups, each with a ⏪ Restore. No LLM, no lorebook writes — just bookkeeping.</small>
+            <label class="checkbox_label"><input type="checkbox" id="cl-timeline-enabled"><span data-cl-i18n="set.tl.show">Show the Timeline section</span></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-activity-enabled"><span data-cl-i18n="set.tl.record">Record background activity</span></label>
+            <label><span data-cl-i18n="set.tl.max">Max entries kept</span> <input type="number" id="cl-activity-max" min="10" max="100" step="10"></label>
+          </details>
+
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.backup">Backups</summary>
+            <label class="checkbox_label"><input type="checkbox" id="cl-backup-enabled"><span data-cl-i18n="set.backup.enable">Keep rolling lorebook snapshots</span></label>
+            <label><span data-cl-i18n="set.backup.keep">Snapshots to keep</span> <input type="number" id="cl-backup-keep" min="1" max="50"></label>
+          </details>
+
+          <p class="cl-hint" data-cl-i18n="set.footer">The two-stage cheap→expensive pipeline is built. Run an audit on demand from Memory → Drift → "Audit now".</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
