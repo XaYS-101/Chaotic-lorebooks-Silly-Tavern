@@ -17,6 +17,7 @@
 import { getSettings } from '../core/settings.js';
 import { renderToc } from '../lorebook/tree-store.js';
 import { retrieveWithReason, updateBufferFromScene } from '../llm/agents.js';
+import { getBuffer } from './thought-buffer.js';
 import { renderForInjection as renderRecollection } from './recollection.js';
 import { loadGraph, neighborhood, serializeSubgraph } from './knowledge-graph.js';
 import { entitiesInWindow } from './entity-extract.js';
@@ -80,9 +81,18 @@ export async function buildCore({ det, target, useCache, useComposeLLM }) {
     const retrieved = await retrieveWithReason();   // 🟡
     if (retrieved) push('toc', retrieved, 70);
     else push('toc', await renderToc(), 70);
-    updateBufferFromScene().catch(() => {});
   } else {
     push('toc', await renderToc(), 70);             // дешёвый путь 🟢
+  }
+
+  // 3b) Буфер мыслей не привязан к agent-ретриву: обновляем в любом не-lite режиме
+  //     на сдвиге сцены или пока буфер пуст в начале чата (агент-запрос откатится
+  //     на текущее подключение, если выделенный агент не настроен). Fire-and-forget.
+  if (s.thoughtBuffer?.enabled && s.mode !== 'lite') {
+    const chatLen = (SillyTavern.getContext().chat ?? []).length;
+    if (det.wake || (getBuffer().length === 0 && chatLen >= 2)) {
+      updateBufferFromScene().catch(() => {});
+    }
   }
 
   // 4) COMPOSE/COMPRESS (call 2 §4b, опц.) — ОДИН дешёвый проход дистилляции.

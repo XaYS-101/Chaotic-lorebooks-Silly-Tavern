@@ -60,10 +60,14 @@ function slabText(start, end) {
 
 /** Есть ли маркер границы в сообщениях диапазона (start..end включительно). */
 function hasMarker(start, end) {
-  if (!getSettings().arc?.useMarkers) return false;
+  const arc = getSettings().arc ?? {};
+  const useMarkers = arc.useMarkers !== false;   // явная команда /cl-arc
+  const useBreaks = arc.useSceneBreaks === true; // рисованные разделители (по умолч. выкл.)
+  if (!useMarkers && !useBreaks) return false;
   for (let i = start; i <= end; i++) {
     const t = chat()[i]?.mes ?? '';
-    if (ARC_MARKER_RE.test(t) || SCENE_BREAK_RE.test(t)) return true;
+    if (useMarkers && ARC_MARKER_RE.test(t)) return true;
+    if (useBreaks && SCENE_BREAK_RE.test(t)) return true;
   }
   return false;
 }
@@ -91,9 +95,11 @@ export async function onMessage() {
   if (open.start > wm) { await persist(); return null; }     // ещё нечего запечатывать
 
   const cap = Math.max(5, getSettings().arc?.capMessages ?? 40);
+  const minLen = Math.max(2, getSettings().arc?.minMessages ?? 6);
   const lenInArc = wm - open.start + 1;
   const capReached = lenInArc >= cap;
-  const marker = hasMarker(open.start, wm);
+  // Маркер запечатывает только арку не короче minLen (анти-короткие арки).
+  const marker = lenInArc >= minLen && hasMarker(open.start, wm);
 
   if (!capReached && !marker) { await persist(); return null; }
 

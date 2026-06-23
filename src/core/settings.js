@@ -107,7 +107,9 @@ const DEFAULTS = Object.freeze({
   // Нарезка арок.
   arc: {
     capMessages: 40,       // длина арки в соо до запечатывания
-    useMarkers: true,      // /cl-arc и сцен-брейки как границы
+    useMarkers: true,      // явная команда /cl-arc как граница
+    useSceneBreaks: false, // рисованные разделители (---, ***, timeskip) как граница (по умолч. выкл.)
+    minMessages: 6,        // маркер не запечатывает арку короче этого (анти-короткие арки)
     useStoryTime: false,   // внутриигровое время как граница (опц.)
     editDirtyThreshold: 0.10, // < этой доли изменённых слов → опечатка, арку не метим
   },
