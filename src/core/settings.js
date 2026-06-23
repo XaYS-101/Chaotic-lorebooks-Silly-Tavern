@@ -270,6 +270,14 @@ export function saveSettings() {
   SillyTavern.getContext().saveSettingsDebounced();
 }
 
+/**
+ * Единый контракт «дешёвые фон-джобы идут везде, кроме lite»: саммари арки, мёрж графа,
+ * авто-скрытие после саммари. Дорогие (аудит / deep-extract) гейтятся отдельно по
+ * autonomous.enabled на своих сайтах. Один источник правды — чтобы добавление режима
+ * или тумблера «пауза фоновой памяти» правилось в одном месте.
+ */
+export function backgroundJobsAllowed(s = getSettings()) { return s.mode !== 'lite'; }
+
 /** Применить пресет режима к остальным настройкам (анти-перегруз UI). */
 export function applyMode(mode) {
   const s = getSettings();

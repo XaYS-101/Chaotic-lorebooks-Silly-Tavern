@@ -12,7 +12,7 @@
 //
 // Метки: 🟢 (без LLM; манипуляция флагом + DOM-атрибутом существующих .mes).
 
-import { getSettings } from '../core/settings.js';
+import { getSettings, backgroundJobsAllowed } from '../core/settings.js';
 import { getSealedArcs } from './arc-segmenter.js';
 import { getFavorites } from '../inject/favorites.js';
 
@@ -43,14 +43,21 @@ function pinnedIndices() {
 }
 
 /**
- * Соо принадлежит ST (системное / коммент / авторская заметка), а не нам?
- * ST метит такие is_system=true (+ класс .smallSysMes в DOM). Мы их НЕ трогаем:
- * иначе сняв is_system мы сорвём их стилизацию (баг «у заметок пропадает css»).
- * Наши собственные скрытые соо тоже is_system=true, но они в tracked — их различаем по set.
+ * Соо помечено ST как системное / коммент / авторская заметка? ST метит такие
+ * is_system=true (+ класс .smallSysMes в DOM). Единый предикат на уровне модели —
+ * чтобы и auto-hide, и звёзды-избранное (index.js) считали «это ST, не наше»
+ * одинаково (баг «у заметок пропадает css» возникал из двух расходящихся проверок).
+ */
+export const isStSystemMessage = (m) => !!m?.is_system;
+
+/**
+ * Соо принадлежит ST, а не нам? Наши собственные скрытые соо тоже is_system=true,
+ * но они в tracked — их различаем по set. ST-овское трогать нельзя: сняв is_system
+ * мы сорвём его стилизацию.
  */
 function isForeignSystem(i, tracked) {
   if (tracked.has(i)) return false;        // это МЫ его спрятали — наше
-  return !!chat()[i]?.is_system;           // is_system не наш → ST-овское (заметка/коммент/сис.)
+  return isStSystemMessage(chat()[i]);     // is_system не наш → ST-овское (заметка/коммент/сис.)
 }
 
 /** Низкоуровнево: пометить соо скрытым/видимым (реплика hideChatMessageRange). */
@@ -79,17 +86,21 @@ export async function maintain() {
   const len = chat().length;
   const window = Math.max(2, s.windowSize ?? 12);
   const keepTail = Math.max(0, s.keepTailFromSlab ?? 2);
-  const afterSummary = s.afterSummary !== false;   // дефолт: прятать только суммаризованное
+  // Требовать summaryGist только если саммари вообще могут появиться (не lite). В lite
+  // фоновых джоб нет → суммари не будет никогда; иначе авто-скрытие там не сработало бы
+  // совсем (старое поведение lite — прятать запечатанный пласт сразу — сохраняем).
+  const afterSummary = s.afterSummary !== false && backgroundJobsAllowed();
   const scope = s.scope === 'newest' ? 'newest' : 'slab';
   const wm = watermark();
   const visibleFloor = len - window;         // индексы ≥ floor — живое окно (ВСЕГДА видимы)
 
   const pinned = pinnedIndices();
 
-  // Кандидаты-арки: запечатанные, захваченные (end ≤ watermark) и — если afterSummary —
-  // уже суммаризованные (есть summaryGist), чтобы скрытие не теряло контекст без замены.
+  // Кандидаты-арки: запечатанные, целиком ЗА живым окном (end < floor — режем пластом,
+  // не раскалывая арку по границе окна), захваченные (end ≤ watermark) и — если
+  // afterSummary — уже суммаризованные (есть summaryGist), чтобы скрытие не теряло контекст.
   let arcs = getSealedArcs()
-    .filter((a) => a.end != null && a.end <= wm)
+    .filter((a) => a.end != null && a.end < visibleFloor && a.end <= wm)
     .filter((a) => !afterSummary || (a.summaryGist && String(a.summaryGist).trim()))
     .sort((a, b) => a.start - b.start);
   if (!arcs.length) { if (tracked.size) await revealAll(); return; }

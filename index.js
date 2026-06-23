@@ -1,7 +1,7 @@
 // index.js — ТОНКИЙ оркестратор. Только init, проводка событий и регистрация
 // точек входа. Вся логика — в модулях.
 
-import { getSettings, saveSettings, MODULE_NAME } from './src/core/settings.js';
+import { getSettings, saveSettings, backgroundJobsAllowed, MODULE_NAME } from './src/core/settings.js';
 import { injectContext } from './src/inject/injector.js';
 import { isChatEnabled, toggleChatEnabled } from './src/core/chat-state.js';
 import { decayTick } from './src/memory/thought-buffer.js';
@@ -14,7 +14,7 @@ import { log as logActivity } from './src/memory/activity-log.js';
 // --- Фаза A — фундамент ---
 import { onMessage as arcOnMessage, onEdit as arcOnEdit, reset as resetArc, sealReady, seedBaselineIfNeeded } from './src/memory/arc-segmenter.js';
 import { maybeOfferBackfill, runBackfillFlow } from './src/memory/backfill.js';
-import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from './src/memory/auto-hide.js';
+import { maintain as autoHideMaintain, revealAll as autoHideRevealAll, isStSystemMessage } from './src/memory/auto-hide.js';
 import { resumeAfterRestart, registerHandler, enqueue } from './src/core/job-queue.js';
 import { noteUserEditing } from './src/lorebook/lorebook-writer.js';
 import { snapshot as backupSnapshot } from './src/lorebook/backup.js';
@@ -116,14 +116,7 @@ async function onSettledTurn() {
   const s = getSettings();
   if (!s.enabled || !isChatEnabled()) return;
   const sealed = await arcOnMessage();
-  if (sealed) {
-    resetMemoryCache();                 // §4b: новая арка → кэш ядра устарел, пересоберём на сдвиге
-    logActivity({ kind: 'arc-seal', arcId: sealed.id, detail: `#${sealed.start}–${sealed.end}` }).catch(warn);
-    await autoHideMaintain();           // спрятать дозревший пласт (если уже суммаризован)
-    if (s.backup?.enabled) backupSnapshot('arc-seal').catch(warn);
-    // Фаза B: извлечение (саммари+граф) — дешёвой фон-джобой во всех режимах, кроме lite.
-    if (s.mode !== 'lite') enqueue('arc-extract', { arcId: sealed.id }).catch(warn);
-  }
+  if (sealed) await afterSeal(sealed);  // единый источник побочек запечатывания (см. afterSeal)
   // Фаза D: раз в ~N устоявшихся ходов — дорогой кросс-арочный аудит (только autonomous).
   if (s.autonomous?.enabled && s.drift?.auditEnabled !== false && noteSettledForAudit()) {
     enqueue('audit-expensive', {}).catch(warn);
@@ -131,18 +124,20 @@ async function onSettledTurn() {
 }
 
 /**
- * Побочки запечатывания арки для РУЧНЫХ путей (/cl-arc, кнопка «Запечатать сейчас»):
- * запись в активность + снапшот + авто-скрытие + дешёвая джоба саммари. Зеркалит
- * onSettledTurn, чтобы таймлайн/память не зависели от того, авто это или вручную.
+ * ЕДИНЫЙ источник побочек запечатывания арки — для авто (onSettledTurn) и ручных путей
+ * (/cl-arc, кнопка «Запечатать сейчас»): сброс кэша + запись в активность + снапшот +
+ * дешёвая джоба саммари (везде кроме lite) + авто-скрытие. Один код → таймлайн/память/
+ * скрытие не зависят от того, авто это или вручную.
  */
 export async function afterSeal(sealed) {
   if (!sealed) return;
   const s = getSettings();
-  resetMemoryCache();
+  resetMemoryCache();                 // §4b: новая арка → кэш ядра устарел, пересоберём на сдвиге
   logActivity({ kind: 'arc-seal', arcId: sealed.id, detail: `#${sealed.start}–${sealed.end}` }).catch(warn);
   if (s.backup?.enabled) backupSnapshot('arc-seal').catch(warn);
-  if (s.mode !== 'lite') enqueue('arc-extract', { arcId: sealed.id }).catch(warn);
-  await autoHideMaintain().catch(warn);
+  // Фаза B: извлечение (саммари+граф) — дешёвой фон-джобой во всех режимах, кроме lite.
+  if (backgroundJobsAllowed(s)) enqueue('arc-extract', { arcId: sealed.id }).catch(warn);
+  await autoHideMaintain().catch(warn); // спрятать дозревший пласт (после саммари — в job-handler)
 }
 
 /** Правка старого соо: гейт опечаток в арк-сегментере; существенная → откат+переизвлечение. */
@@ -200,11 +195,12 @@ function addWandButton(tries = 0) {
 function injectFavoriteStars() {
   document.querySelectorAll('#chat .mes').forEach((mesEl) => {
     if (mesEl.querySelector('.cl-star')) return;
-    // Не звёздим системные/комменты/авторские заметки ST (класс .smallSysMes или
-    // is_system="true") — звезда ломает их вёрстку/стилизацию (баг «пропадает css»).
-    if (mesEl.classList.contains('smallSysMes') || mesEl.getAttribute('is_system') === 'true') return;
     const idx = Number(mesEl.getAttribute('mesid'));
     if (Number.isNaN(idx)) return;
+    // Не звёздим системные/комменты/авторские заметки ST — звезда ломает их вёрстку
+    // (баг «пропадает css»). Единый предикат на модели (как в auto-hide) + дешёвый
+    // DOM-фолбэк по классу .smallSysMes на случай ещё не отражённого в модели соо.
+    if (mesEl.classList.contains('smallSysMes') || isStSystemMessage(SillyTavern.getContext().chat?.[idx])) return;
     const star = document.createElement('div');
     star.className = 'cl-star' + (isFav(idx) ? ' cl-star-on' : '');
     star.textContent = '★';

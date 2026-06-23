@@ -59,13 +59,16 @@ function findSimilar(buf, { text, kind, subject }) {
 export async function upsertItem({ text, kind = 'thread', subject, importance, replaceId }) {
   const buf = getBuffer();
   const subj = subjectOf(text, subject);
+  const explicitImp = importance != null;       // явная переоценка важности от вызывающего
   const imp = clampImp(importance ?? DEFAULT_IMPORTANCE[kind] ?? 2);
   const target = replaceId ? buf.find((i) => i.id === replaceId)
     : findSimilar(buf, { text: text.trim(), kind, subject: subj });
 
   if (target) {
     target.text = text.trim(); target.kind = kind; target.subject = subj;
-    target.importance = Math.max(target.importance || 1, imp);
+    // Явная важность от LLM может и ПОНИЗИТЬ (иначе раз ставшая 3 черта-константа
+    // пиннилась бы навсегда); без явной — монотонный максимум (подтверждение не роняет).
+    target.importance = explicitImp ? imp : Math.max(target.importance || 1, imp);
     target.weight = ceilingOf(target);
     target.lastSeen = Date.now();
   } else {
@@ -130,9 +133,11 @@ function enforceCap(buf) {
   const s = getSettings().thoughtBuffer;
   if (!s.limitEnabled) return;
   if (buf.length <= s.maxItems) return;
-  // Константы держим ВСЕГДА (пин-ярус); лимитом режем только обычные пункты.
+  // Константы приоритетны (пин-ярус), но и ОНИ ограничены лимитом — иначе при числе
+  // констант ≥ maxItems буфер раздувался бы без потолка. Держим топ-по-весу константы,
+  // затем добиваем обычными до maxItems. Жёсткая гарантия: buf.length ≤ maxItems.
   const byWeight = (a, b) => (b.weight - a.weight) || (b.lastSeen - a.lastSeen);
-  const consts = buf.filter(isConstant).sort(byWeight);
+  const consts = buf.filter(isConstant).sort(byWeight).slice(0, s.maxItems);
   const rest = buf.filter((it) => !isConstant(it)).sort(byWeight);
   const room = Math.max(0, s.maxItems - consts.length);
   const next = [...consts, ...rest.slice(0, room)];

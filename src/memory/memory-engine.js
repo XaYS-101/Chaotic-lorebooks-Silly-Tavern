@@ -14,7 +14,7 @@
 //
 // Метки: каркас ядра 🟢; Compose-проход 🟡 с откатом.
 
-import { getSettings } from '../core/settings.js';
+import { getSettings, backgroundJobsAllowed } from '../core/settings.js';
 import { renderToc } from '../lorebook/tree-store.js';
 import { retrieveWithReason, updateBufferFromScene } from '../llm/agents.js';
 import { getBuffer } from './thought-buffer.js';
@@ -88,7 +88,7 @@ export async function buildCore({ det, target, useCache, useComposeLLM }) {
   // 3b) Буфер мыслей не привязан к agent-ретриву: обновляем в любом не-lite режиме
   //     на сдвиге сцены или пока буфер пуст в начале чата (агент-запрос откатится
   //     на текущее подключение, если выделенный агент не настроен). Fire-and-forget.
-  if (s.thoughtBuffer?.enabled && s.mode !== 'lite') {
+  if (s.thoughtBuffer?.enabled && backgroundJobsAllowed(s)) {
     const chatLen = (SillyTavern.getContext().chat ?? []).length;
     if (det.wake || (getBuffer().length === 0 && chatLen >= 2)) {
       updateBufferFromScene().catch(() => {});

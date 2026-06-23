@@ -14,7 +14,7 @@
 // Зовётся ТОЛЬКО из обработчика job 'arc-extract' (autonomous). Деградация: LLM
 // вернул null → арка не обрабатывается, очередь повторит (до 3 раз), чат не страдает.
 
-import { getSettings } from '../core/settings.js';
+import { getSettings, backgroundJobsAllowed } from '../core/settings.js';
 import { agentRequest, parseJsonLoose } from '../llm/llm-service.js';
 import { noteLlmCall, enqueue } from '../core/job-queue.js';
 import { getArc, arcText, setSummaryGist, setArcSignificance } from './arc-segmenter.js';
@@ -56,7 +56,7 @@ export async function summarizeArc(arcId) {
   // не строится вовсе). Разовый backfill (поздно-включённый чат) пускаем даже в lite —
   // флаг живёт в chatMetadata, очередь его же чекает.
   const backfillActive = !!(SillyTavern.getContext().chatMetadata?.chaoticLorebooks_backfillActive);
-  if (s.mode === 'lite' && !backfillActive) return false;
+  if (!backgroundJobsAllowed(s) && !backfillActive) return false;
 
   const arc = getArc(arcId);
   if (!arc || !arc.sealed) return false;

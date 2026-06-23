@@ -10,7 +10,7 @@
 //
 // Метки: 🟢 каркас (обработчики могут быть 🟡).
 
-import { getSettings } from './settings.js';
+import { getSettings, backgroundJobsAllowed } from './settings.js';
 
 const QUEUE_KEY = 'chaoticLorebooks_queue';
 const BACKFILL_KEY = 'chaoticLorebooks_backfillActive';
@@ -93,7 +93,7 @@ async function drain() {
   // Дренируем во всех режимах, кроме lite (там фоновой памяти нет вовсе): balanced и
   // autonomous гонят ДЕШЁВЫЕ джобы (саммари арки, мёрж графа). Дорогие (аудит/deep-extract)
   // ставятся в очередь только в autonomous — на своих enqueue-сайтах. Backfill дренит даже в lite.
-  if (s.mode === 'lite' && !isBackfillActive()) return;
+  if (!backgroundJobsAllowed(s) && !isBackfillActive()) return;
   const concurrency = Math.max(1, Math.min(2, s.autonomous?.concurrency ?? 1));
 
   // Простой цикл: берём pending-джобы, пока есть слоты и бюджет.
