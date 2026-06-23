@@ -16,6 +16,22 @@
   flex: 1 1 160px;
   min-width: 0;
 }
+/* Popup controls take theme colors (fixes white-on-white on bare inputs). */
+.cl-choose select,
+.cl-choose input[type="text"],
+.cl-choose input[type="password"],
+.cl-choose textarea {
+  box-sizing: border-box;
+  min-height: 32px; padding: 6px 8px; border-radius: 6px;
+  background: var(--black30a, rgba(0,0,0,0.3));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+}
+.cl-choose select option {
+  background: var(--SmartThemeBlurTintColor, #222);
+  color: var(--SmartThemeBodyColor);
+}
+.cl-choose input[type="radio"] { accent-color: var(--SmartThemeQuoteColor, #8ab4f8); }
 
 /* Звезда избранного на сообщении */
 .cl-star {
@@ -119,8 +135,9 @@
 .cl-rm { min-width: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--SmartThemeBodyColor); opacity: 0.6; }
 .cl-rm:hover { opacity: 1; }
 
-/* Кнопка в меню расширений */
-#cl-wand { cursor: pointer; }
+/* Extensions-menu button (label on one line) */
+#cl-wand { cursor: pointer; white-space: nowrap; }
+#cl-wand > span { white-space: nowrap; }
 
 /* Редактор сохранённых вырезок (вкладка Saved) */
 .cl-savedrow {
@@ -282,6 +299,7 @@
    темы → невидимо). Цвета только из var(--SmartTheme...), как и везде. */
 .chaotic-lorebooks-settings input[type="number"],
 .chaotic-lorebooks-settings input[type="text"],
+.chaotic-lorebooks-settings input[type="password"],
 .chaotic-lorebooks-settings select,
 .chaotic-lorebooks-settings textarea {
   width: 100%; box-sizing: border-box;
@@ -301,7 +319,15 @@
 .chaotic-lorebooks-settings label:not(.checkbox_label) > span { display: block; margin-bottom: 3px; opacity: 0.9; }
 
 /* Ряд кнопок (Refresh / New profile) */
-.chaotic-lorebooks-settings .cl-row { display: flex; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+.chaotic-lorebooks-settings .cl-row { display: flex; gap: 8px; margin: 6px 0; flex-wrap: wrap; align-items: center; }
+.chaotic-lorebooks-settings .cl-row select { flex: 1 1 140px; }
+
+/* Agent-source blocks (ST profile / custom endpoint) */
+.chaotic-lorebooks-settings .cl-src-block {
+  margin: 6px 0; padding: 8px; border-radius: 8px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
+  background: var(--black30a, rgba(255,255,255,0.04));
+}
 
 /* Опасная зона — акцент из темы */
 .chaotic-lorebooks-settings .cl-danger > summary { color: var(--SmartThemeQuoteColor, #e0666b); }

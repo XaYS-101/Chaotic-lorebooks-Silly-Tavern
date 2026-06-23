@@ -41,14 +41,40 @@
           <details class="cl-sub">
             <summary data-cl-i18n="set.agent">Background agent</summary>
             <small data-cl-i18n="set.agent.note">Cheap/fast model gathers memory; your main model writes the reply.</small>
-            <label><span data-cl-i18n="set.agent.profile">Agent Connection Profile</span>
-              <select id="cl-agent-profile"><option value="" data-cl-i18n="set.agent.profileDefault">(current connection)</option></select>
+
+            <label><span data-cl-i18n="set.agent.source">Agent uses</span>
+              <select id="cl-agent-source">
+                <option value="st" data-cl-i18n="set.agent.source.st">A SillyTavern connection profile</option>
+                <option value="custom" data-cl-i18n="set.agent.source.custom">A custom endpoint (set up below)</option>
+              </select>
             </label>
-            <div class="cl-row">
-              <button type="button" id="cl-profile-refresh" class="menu_button" data-cl-i18n="set.agent.profileRefresh">↻ Refresh list</button>
-              <button type="button" id="cl-profile-new" class="menu_button" data-cl-i18n="[title]set.agent.profileNewTitle;set.agent.profileNew">+ New profile</button>
+
+            <!-- Source: ST connection profile -->
+            <div id="cl-src-st" class="cl-src-block">
+              <label><span data-cl-i18n="set.agent.profile">Agent Connection Profile</span>
+                <select id="cl-agent-profile"><option value="" data-cl-i18n="set.agent.profileDefault">(current connection)</option></select>
+              </label>
+              <div class="cl-row">
+                <button type="button" id="cl-profile-refresh" class="menu_button" data-cl-i18n="set.agent.profileRefresh">↻ Refresh list</button>
+                <button type="button" id="cl-profile-new" class="menu_button" data-cl-i18n="[title]set.agent.profileNewTitle;set.agent.profileNew">+ New profile</button>
+              </div>
+              <small class="cl-hint" data-cl-i18n="set.agent.profileHint">Pick a saved Connection Profile for the background agent, or leave “(current connection)”. “+ New profile” snapshots your CURRENT connection into a new profile (at your own risk).</small>
             </div>
-            <small class="cl-hint" data-cl-i18n="set.agent.profileHint">Pick a saved Connection Profile for the background agent, or leave “(current connection)”. “+ New profile” snapshots your CURRENT connection into a new profile (at your own risk).</small>
+
+            <!-- Source: self-contained custom endpoint -->
+            <div id="cl-src-custom" class="cl-src-block cl-hidden">
+              <div class="cl-row">
+                <select id="cl-api-select"></select>
+                <button type="button" id="cl-api-new" class="menu_button" data-cl-i18n="set.api.new">+ New</button>
+                <button type="button" id="cl-api-del" class="menu_button" data-cl-i18n="set.api.del">🗑 Delete</button>
+              </div>
+              <label><span data-cl-i18n="set.api.name">Profile name</span> <input type="text" id="cl-api-name" placeholder="My endpoint"></label>
+              <label><span data-cl-i18n="set.api.url">Base URL</span> <input type="text" id="cl-api-url" placeholder="https://api.openai.com/v1"></label>
+              <label><span data-cl-i18n="set.api.key">API key</span> <input type="password" id="cl-api-key" autocomplete="off" placeholder="sk-…"></label>
+              <label><span data-cl-i18n="set.api.model">Model</span> <input type="text" id="cl-api-model" placeholder="gpt-4o-mini"></label>
+              <small class="cl-hint" data-cl-i18n="set.api.note">OpenAI-compatible /chat/completions. The key is stored in this extension's settings (local, not encrypted). If the endpoint fails, the agent falls back to your current connection so chat never breaks.</small>
+            </div>
+
             <label><span data-cl-i18n="set.agent.retrieval">Retrieval mode</span>
               <select id="cl-retrieval-mode">
                 <option value="recency" data-cl-i18n="set.agent.retrieval.cheap">Cheap (recency + ToC)</option>
@@ -187,7 +213,7 @@
           <details class="cl-sub cl-danger">
             <summary data-cl-i18n="set.danger">⚠️ Danger zone</summary>
             <small data-cl-i18n="set.danger.note">Reset all Chaotic Lorebooks settings to defaults and erase this chat's memory metadata (buffer, favorites, arcs, recollections, drift flags, backups, activity, queue). Your lorebook entries and the chat itself are NOT touched.</small>
-            <p class="cl-hint cl-danger-scope" data-cl-i18n="set.danger.scope">Note: only the CURRENT chat's memory is cleared. Settings reset applies everywhere. To wipe memory from other chats, open each one and clear it there. To delete already-written entries, remove the lorebook in SillyTavern → World Info.</p>
+            <p class="cl-hint cl-danger-scope" data-cl-i18n="set.danger.scope">Choose the scope when you click: this chat only, or every chat. Settings reset always applies everywhere. To delete already-written lorebook entries, remove the lorebook in SillyTavern → World Info.</p>
             <button type="button" id="cl-clear-data" class="menu_button cl-danger-btn" data-cl-i18n="set.danger.clear">🗑 Clear all data</button>
           </details>
 

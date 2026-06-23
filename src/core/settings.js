@@ -23,6 +23,17 @@ const DEFAULTS = Object.freeze({
   // идёт обычной моделью пользователя — мы её не трогаем.
   agentProfile: '',
 
+  // What the background agent uses: 'st' = ST Connection Profile (agentProfile),
+  // 'custom' = a self-contained endpoint from api.profiles below.
+  agentSource: 'st',
+
+  // Self-contained custom endpoints. profiles: [{ id, name, url, key, model }].
+  // The key is stored here (local, not encrypted) — flagged in the UI.
+  api: {
+    profiles: [],
+    activeProfileId: null,
+  },
+
   // --- Авто-лорбук ---
   // Спрашивать при первом запуске в чате без книги (выбрать/создать/отмена).
   askOnFirstUse: true,

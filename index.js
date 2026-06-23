@@ -30,6 +30,8 @@ import { maybeHandleFork } from './src/lorebook/branch-guard.js';
 import { maybeHandleGlobal } from './src/lorebook/global-reconciler.js';
 // --- i18n — EN/RU локализация UI/тостов/слэш-команд ---
 import { t } from './src/core/i18n.js';
+// --- purge — on-open metadata self-cleanup after "clear all data" (backstop) ---
+import { purgeCurrentChatIfArmed } from './src/core/purge.js';
 
 // --- Глобальный перехватчик промпта (имя совпадает с manifest) ---
 // Вызывается ДО запроса генерации: тут мы собираем и вкладываем контекст.
@@ -58,6 +60,7 @@ function init() {
 
   // Сброс UI при смене чата (метаданные буфера/избранного — свои на чат)
   eventSource.on(event_types.CHAT_CHANGED, () => {
+    purgeCurrentChatIfArmed().catch(warn); // if the purge backstop is armed, scrub this chat's keys
     resetScene(); resetArc(); resetMemoryCache(); injectFavoriteStars();
     resumeAfterRestart();     // возобновить persisted-очередь нового чата
     maybeHandleFork().catch(warn); // ветка чата делит книгу с родителем? предложить форк
@@ -132,16 +135,24 @@ function registerJobHandlers() {
   registerHandler('audit-expensive', async () => { await runAudit({ paidAllowed: true }); });
 }
 
-// --- Кнопка в «магической палочке» / панели расширений ---
-function addWandButton() {
+// --- Magic-wand / extensions menu button ---
+// Wait for #extensionsMenu (ST builds it on body during init) instead of falling
+// back to document.body; dedupe; native-style item (fa icon + non-wrapping label).
+function addWandButton(tries = 0) {
+  if (document.getElementById('cl-wand')) return;          // already added — don't duplicate
+  const menu = document.getElementById('extensionsMenu');
+  if (!menu) {                                             // container not ready yet → retry
+    if (tries < 40) setTimeout(() => addWandButton(tries + 1), 250);
+    else console.warn('[ChaoticLorebooks] extensionsMenu not found — wand button skipped');
+    return;
+  }
   const btn = document.createElement('div');
   btn.id = 'cl-wand';
-  // extensionsMenuExtensionButton — нативный класс кнопок меню «магической палочки».
-  btn.className = 'list-group-item flex-container flexGap5 interactable extensionsMenuExtensionButton';
-  btn.innerHTML = `<span>🌀</span> ${t('ui.wandLabel')}`;
+  btn.className = 'list-group-item flex-container flexGap5 interactable';
+  btn.tabIndex = 0;
+  btn.title = t('ui.wandLabel');
+  btn.innerHTML = `<div class="fa-fw fa-solid fa-hurricane extensionsMenuExtensionButton"></div><span>${t('ui.wandLabel')}</span>`;
   btn.addEventListener('click', () => toggleDrawer());
-  // Сверено с ST: контейнер меню расширений — #extensionsMenu.
-  const menu = document.getElementById('extensionsMenu') || document.body;
   menu.appendChild(btn);
 }
 

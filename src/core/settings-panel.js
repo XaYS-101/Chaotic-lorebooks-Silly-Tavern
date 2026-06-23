@@ -4,11 +4,13 @@
 
 import { getSettings, saveSettings, applyMode, MODULE_NAME } from './settings.js';
 import { t, localize } from './i18n.js';
+import { deepPurgeAllChats, purgeCurrentChat, armBackstop } from './purge.js';
 
 // id инпута → путь в настройках + тип. Только РЕАЛЬНЫЕ v0-настройки.
 const BINDINGS = [
   ['cl-enabled', 'enabled', 'bool'],
   ['cl-ui-language', 'uiLanguage', 'str'],
+  ['cl-agent-source', 'agentSource', 'str'],
   ['cl-agent-profile', 'agentProfile', 'str'],
   ['cl-retrieval-mode', 'retrievalMode', 'str'],
   ['cl-agent-n', 'agentEveryNTurns', 'int'],
@@ -112,6 +114,8 @@ export async function renderSettingsPanel() {
   bindInputs();
   populateAgentProfiles();   // заполнить список профилей подключения (после bindInputs)
   wireProfileButtons();      // Refresh / + New profile
+  wireApiManager();          // кастомные эндпоинты (New/Delete/поля)
+  wireSourceSwitch();        // ST-профиль ⇄ кастомный эндпоинт (показ блоков)
   wireDangerZone();          // 🗑 Clear all data
 
   // Смена языка интерфейса → перелокализовать панель «вживую» (без перезагрузки).
@@ -211,14 +215,150 @@ async function createProfile() {
   globalThis.toastr?.success?.(t('toast.profileCreated'));
 }
 
+// --- Agent source: ST profile vs custom endpoint ---
+
+// Show the selected source's block, hide the other.
+function applySourceVisibility() {
+  const src = getByPath(getSettings(), 'agentSource') || 'st';
+  document.getElementById('cl-src-st')?.classList.toggle('cl-hidden', src !== 'st');
+  document.getElementById('cl-src-custom')?.classList.toggle('cl-hidden', src !== 'custom');
+}
+
+// The generic binding persists agentSource on change; we just toggle the blocks.
+function wireSourceSwitch() {
+  applySourceVisibility();
+  document.getElementById('cl-agent-source')?.addEventListener('change', () => applySourceVisibility());
+}
+
+// --- Custom endpoint manager (api.profiles) ---
+
+function uid() {
+  try { return crypto.randomUUID(); } catch { return `p_${Date.now()}_${Math.floor(Math.random() * 1e6)}`; }
+}
+function apiState() {
+  const s = getSettings();
+  if (!s.api || typeof s.api !== 'object') s.api = { profiles: [], activeProfileId: null };
+  if (!Array.isArray(s.api.profiles)) s.api.profiles = [];
+  return s.api;
+}
+function activeApiProfile() {
+  const api = apiState();
+  return api.profiles.find((p) => p && p.id === api.activeProfileId) || null;
+}
+
+// Rebuild #cl-api-select from api.profiles, select the active one, fill the fields.
+function refreshApiSelect() {
+  const sel = document.getElementById('cl-api-select');
+  if (!sel) return;
+  const api = apiState();
+  sel.innerHTML = '';
+  if (!api.profiles.length) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = t('set.api.none');
+    sel.appendChild(o);
+  } else {
+    for (const p of api.profiles) {
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.name || t('set.api.unnamed');
+      sel.appendChild(o);
+    }
+  }
+  if (api.activeProfileId && api.profiles.some((p) => p.id === api.activeProfileId)) {
+    sel.value = api.activeProfileId;
+  } else if (api.profiles.length) {
+    api.activeProfileId = api.profiles[0].id;
+    sel.value = api.activeProfileId;
+    saveSettings();
+  } else {
+    api.activeProfileId = null;
+  }
+  fillApiFields();
+}
+
+// Load the active profile's name/url/key/model into the inputs (disabled when none).
+function fillApiFields() {
+  const p = activeApiProfile();
+  const fields = {
+    'cl-api-name': p?.name ?? '',
+    'cl-api-url': p?.url ?? '',
+    'cl-api-key': p?.key ?? '',
+    'cl-api-model': p?.model ?? '',
+  };
+  for (const [id, val] of Object.entries(fields)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.value = val;
+    el.disabled = !p;
+  }
+  const del = document.getElementById('cl-api-del');
+  if (del) del.disabled = !p;
+}
+
+function wireApiManager() {
+  refreshApiSelect();
+
+  document.getElementById('cl-api-select')?.addEventListener('change', (e) => {
+    apiState().activeProfileId = e.target.value || null;
+    saveSettings();
+    fillApiFields();
+  });
+
+  document.getElementById('cl-api-new')?.addEventListener('click', () => {
+    const api = apiState();
+    const prof = { id: uid(), name: `${t('set.api.profileWord')} ${api.profiles.length + 1}`, url: '', key: '', model: '' };
+    api.profiles.push(prof);
+    api.activeProfileId = prof.id;
+    saveSettings();
+    refreshApiSelect();
+    document.getElementById('cl-api-name')?.focus();
+  });
+
+  document.getElementById('cl-api-del')?.addEventListener('click', () => {
+    const api = apiState();
+    if (!api.activeProfileId) return;
+    api.profiles = api.profiles.filter((p) => p.id !== api.activeProfileId);
+    api.activeProfileId = api.profiles[0]?.id ?? null;
+    saveSettings();
+    refreshApiSelect();
+  });
+
+  // Field edits write to the active profile; a name change updates the select label.
+  const fieldMap = { 'cl-api-name': 'name', 'cl-api-url': 'url', 'cl-api-key': 'key', 'cl-api-model': 'model' };
+  for (const [id, key] of Object.entries(fieldMap)) {
+    document.getElementById(id)?.addEventListener('input', () => {
+      const p = activeApiProfile();
+      if (!p) return;
+      p[key] = document.getElementById(id).value;
+      saveSettings();
+      if (key === 'name') {
+        const opt = [...(document.getElementById('cl-api-select')?.options || [])].find((o) => o.value === p.id);
+        if (opt) opt.textContent = p.name || t('set.api.unnamed');
+      }
+    });
+  }
+}
+
 // --- Опасная зона: полный сброс -------------------------------------------
 function wireDangerZone() {
   document.getElementById('cl-clear-data')?.addEventListener('click', async () => {
     const c = SillyTavern.getContext();
     const POPUP_TYPE = c.POPUP_TYPE ?? {};
     const POPUP_RESULT = c.POPUP_RESULT ?? {};
+    // Scope choice: this chat only vs every chat (deep purge).
     const wrap = document.createElement('div');
-    wrap.innerHTML = `<h3>${t('popup.clear.title')}</h3><p>${t('popup.clear.body')}</p>`;
+    wrap.className = 'cl-choose';
+    wrap.innerHTML = `
+      <h3>${t('popup.clear.title')}</h3>
+      <p>${t('popup.clear.body')}</p>
+      <label class="cl-choose-row">
+        <input type="radio" name="cl-clear-scope" value="chat" checked>
+        <span>${t('popup.clear.scopeChat')}</span>
+      </label>
+      <label class="cl-choose-row">
+        <input type="radio" name="cl-clear-scope" value="all">
+        <span>${t('popup.clear.scopeAll')}</span>
+      </label>
+      <p class="cl-hint">${t('popup.clear.scopeNote')}</p>`;
     let res;
     try {
       res = await c.callGenericPopup(wrap, POPUP_TYPE.CONFIRM ?? 2, '', {
@@ -227,33 +367,47 @@ function wireDangerZone() {
     } catch { return; }
     const affirmative = POPUP_RESULT.AFFIRMATIVE ?? 1;
     if (res !== affirmative && res !== true) return;
-    await clearAllData();
+    const scope = wrap.querySelector('input[name="cl-clear-scope"]:checked')?.value || 'chat';
+    await clearAllData(scope);
   });
 }
 
-/** Сбросить настройки к дефолтам + стереть метаданные расширения ТЕКУЩЕГО чата. */
-async function clearAllData() {
+// Reset settings to defaults + erase extension metadata. scope='chat' clears the
+// current chat only; scope='all' sweeps every character chat and arms the backstop.
+async function clearAllData(scope = 'chat') {
   const c = SillyTavern.getContext();
-  // 1) настройки (глобальные) → дефолты
-  try { delete c.extensionSettings[MODULE_NAME]; } catch { /* нет — и ладно */ }
-  getSettings();   // переинициализировать дефолты
-  saveSettings();
-  // 2) метаданные ТЕКУЩЕГО чата с префиксом chaoticLorebooks_ (native world_info НЕ трогаем)
-  try {
-    const meta = c.chatMetadata;
-    if (meta) {
-      for (const k of Object.keys(meta)) {
-        if (k.startsWith('chaoticLorebooks_')) delete meta[k];
-      }
-      await c.saveMetadata?.();
-    }
-  } catch (e) {
-    console.warn('[ChaoticLorebooks] clear metadata failed:', e);
+
+  // Clear the current chat before resetting settings (needs live chatMetadata).
+  try { await purgeCurrentChat(); } catch (e) { console.warn('[ChaoticLorebooks] clear current failed:', e); }
+
+  let deep = null;
+  if (scope === 'all') {
+    armBackstop();   // survives the settings wipe; scrubs remaining chats on open
+    globalThis.toastr?.info?.(t('toast.purgeStart'));
+    try { deep = await deepPurgeAllChats(); }
+    catch (e) { console.warn('[ChaoticLorebooks] deep purge failed:', e); }
   }
-  // 3) перечитать значения в панель
+
+  // Global settings → defaults.
+  try { delete c.extensionSettings[MODULE_NAME]; } catch { /* fine */ }
+  getSettings();
+  saveSettings();
+
+  // Re-read values into the panel.
   fillInputs();
   populateAgentProfiles();
-  globalThis.toastr?.success?.(t('toast.cleared'));
+  refreshApiSelect();
+  applySourceVisibility();
+
+  if (scope === 'all') {
+    if (deep?.noNetwork) {
+      globalThis.toastr?.warning?.(t('toast.purgeNoNetwork'));
+    } else if (deep) {
+      globalThis.toastr?.success?.(t('toast.purgeDone', { cleaned: deep.cleaned, failed: deep.failed }));
+    }
+  } else {
+    globalThis.toastr?.success?.(t('toast.cleared'));
+  }
 }
 
 // Только ЗАПОЛНИТЬ инпуты текущими значениями (без навешивания слушателей).
