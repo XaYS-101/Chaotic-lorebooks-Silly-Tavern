@@ -5,7 +5,7 @@ import { getSettings, saveSettings, MODULE_NAME } from './src/core/settings.js';
 import { injectContext } from './src/inject/injector.js';
 import { isChatEnabled, toggleChatEnabled } from './src/core/chat-state.js';
 import { decayTick } from './src/memory/thought-buffer.js';
-import { toggleFavorite, isFav, addQuote } from './src/inject/favorites.js';
+import { toggleFavorite, isFav, addQuote, reconcileFavoritesAfterDelete } from './src/inject/favorites.js';
 import { toggleDrawer, ensureDrawer } from './src/ui/tree-ui.js';
 import { renderSettingsPanel } from './src/core/settings-panel.js';
 import { reset as resetScene } from './src/memory/scene-detector.js';
@@ -83,6 +83,18 @@ function init() {
   // Юзер правит World Info вручную → откладываем авто-записи (CAS/defer).
   if (event_types.WORLDINFO_UPDATED) {
     eventSource.on(event_types.WORLDINFO_UPDATED, () => noteUserEditing());
+  }
+  // Удаление соо → сдвигаем mesIndex у избранных, выкидываем привязанные к удалённому;
+  // звезда сама перестанет светиться после re-render (иначе выглядит будто соо ещё захвачено).
+  if (event_types.MESSAGE_DELETED) {
+    eventSource.on(event_types.MESSAGE_DELETED, async (idx) => {
+      try {
+        const n = Number(idx);
+        await reconcileFavoritesAfterDelete(Number.isFinite(n) ? n : -1);
+        document.querySelectorAll('#chat .mes .cl-star').forEach((s) => s.remove());
+        injectFavoriteStars();
+      } catch (e) { warn(e); }
+    });
   }
 
   resumeAfterRestart();       // на старте — поднять незавершённые джобы
@@ -206,12 +218,17 @@ function setupQuoteFab() {
     const sel = window.getSelection?.();
     if (!sel || sel.isCollapsed || !sel.rangeCount) { scheduleHide(); return; }
     const text = sel.toString().trim();
-    const mesEl = sel.anchorNode?.parentElement?.closest?.('#chat .mes');
+    // Ищем .mes от commonAncestorContainer (надёжнее, чем anchorNode.parentElement —
+    // anchorNode может быть Element, или текстом в markdown-обёртке).
+    const range = sel.getRangeAt(0);
+    const node = range.commonAncestorContainer;
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    const mesEl = el?.closest?.('#chat .mes');
     if (!text || !mesEl) { scheduleHide(); return; }
     const idx = Number(mesEl.getAttribute('mesid'));
     if (Number.isNaN(idx)) { scheduleHide(); return; }
     cached = { idx, text };
-    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const rect = range.getBoundingClientRect();
     const top = Math.max(8, rect.top - 44);
     const left = Math.min(window.innerWidth - 130, Math.max(8, rect.left));
     fab.style.top = `${top}px`;
@@ -222,7 +239,15 @@ function setupQuoteFab() {
   const scheduleHide = () => { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 150); };
 
   document.addEventListener('selectionchange', () => { clearTimeout(hideTimer); hideTimer = setTimeout(update, 120); });
-  document.addEventListener('scroll', hide, true);
+  // selectionchange задушен в некоторых браузерах — догоняем релизом курсора/пальца.
+  document.addEventListener('mouseup', () => setTimeout(update, 0));
+  document.addEventListener('touchend', () => setTimeout(update, 0), { passive: true });
+  // Скролл прячет ТОЛЬКО если выделение уже сброшено — иначе теряем FAB на мобиле,
+  // когда страница нудро двигается при тач-выделении.
+  document.addEventListener('scroll', () => {
+    const s = window.getSelection?.();
+    if (!s || s.isCollapsed) hide();
+  }, true);
 
   // preventDefault на старте тача/мыши — не сбрасываем выделение до click.
   fab.addEventListener('mousedown', (e) => e.preventDefault());

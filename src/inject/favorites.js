@@ -33,6 +33,28 @@ export function isFav(mesIndex) {
   return getFavorites().some((f) => f.mesIndex === mesIndex && f.kind !== 'quote');
 }
 
+/**
+ * Удалили соо в чате → сдвигаем mesIndex у пунктов выше, выкидываем привязанные
+ * к удалённому или вышедшие за длину чата. Звезда сама перестанет светиться
+ * после re-render.
+ */
+export async function reconcileFavoritesAfterDelete(deletedIdx) {
+  const favs = getFavorites();
+  if (!favs.length) return;
+  const len = ctx().chat?.length ?? 0;
+  let changed = false;
+  for (let i = favs.length - 1; i >= 0; i--) {
+    const f = favs[i];
+    if (typeof f.mesIndex !== 'number') continue;
+    if (Number.isFinite(deletedIdx) && deletedIdx >= 0) {
+      if (f.mesIndex === deletedIdx) { favs.splice(i, 1); changed = true; continue; }
+      if (f.mesIndex > deletedIdx) { f.mesIndex -= 1; changed = true; }
+    }
+    if (f.mesIndex >= len) { favs.splice(i, 1); changed = true; }
+  }
+  if (changed) await persist();
+}
+
 /** ★ на ВСЁ сообщение (toggle). Режим по умолчанию permanent. */
 export async function toggleFavorite(mesIndex, text) {
   const favs = getFavorites();
@@ -54,13 +76,10 @@ export async function addQuote(mesIndex, text, mode) {
   await persist();
 }
 
-// Целые соо бывают длинными → не режем на 500 (это и было «частичное сохранение»).
-// Держим щедрый потолок только против разрастания метаданных.
-const MAX_FAV_CHARS = 8000;
 function mk(mesIndex, text, kind, mode) {
   return {
     id: `${kind[0]}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    mesIndex, text: String(text).trim().slice(0, MAX_FAV_CHARS),
+    mesIndex, text: String(text).trim(),
     kind, mode, enabled: true, pinned: false, addedAt: Date.now(),
   };
 }
