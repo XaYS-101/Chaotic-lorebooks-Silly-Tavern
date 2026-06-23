@@ -277,6 +277,41 @@
 }
 .cl-budget-row.cl-budget-over { color: var(--SmartThemeQuoteColor, #d46b5b); opacity: 0.85; }
 
+/* Контролы панели настроек берут цвета ИЗ ТЕМЫ ST (фикс «белый текст на белом»:
+   у голых input/select был дефолтный белый фон браузера, а текст — светлый цвет
+   темы → невидимо). Цвета только из var(--SmartTheme...), как и везде. */
+.chaotic-lorebooks-settings input[type="number"],
+.chaotic-lorebooks-settings input[type="text"],
+.chaotic-lorebooks-settings select,
+.chaotic-lorebooks-settings textarea {
+  width: 100%; box-sizing: border-box;
+  min-height: 30px; padding: 4px 8px; border-radius: 6px;
+  background: var(--black30a, rgba(0,0,0,0.3));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+}
+/* Список опций селекта — иначе часть браузеров рисует его в системных (белых) цветах */
+.chaotic-lorebooks-settings select option {
+  background: var(--SmartThemeBlurTintColor, #222);
+  color: var(--SmartThemeBodyColor);
+}
+/* Раскладка обычных лейблов: подпись над полем. checkbox_label НЕ трогаем
+   (ST рисует их инлайн-флексом — оставляем как есть). */
+.chaotic-lorebooks-settings label:not(.checkbox_label) { display: block; margin: 8px 0; }
+.chaotic-lorebooks-settings label:not(.checkbox_label) > span { display: block; margin-bottom: 3px; opacity: 0.9; }
+
+/* Ряд кнопок (Refresh / New profile) */
+.chaotic-lorebooks-settings .cl-row { display: flex; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+
+/* Опасная зона — акцент из темы */
+.chaotic-lorebooks-settings .cl-danger > summary { color: var(--SmartThemeQuoteColor, #e0666b); }
+.chaotic-lorebooks-settings .cl-danger-scope { opacity: 0.7; }
+.chaotic-lorebooks-settings .cl-danger-btn {
+  margin-top: 6px;
+  color: var(--SmartThemeQuoteColor, #e0666b);
+  border-color: var(--SmartThemeQuoteColor, #e0666b);
+}
+
 /* Свёрнутые под-секции в панели настроек Advanced (анти-«простыня») */
 .chaotic-lorebooks-settings .cl-sub { margin: 4px 0; }
 .chaotic-lorebooks-settings .cl-sub > summary {

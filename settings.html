@@ -44,6 +44,11 @@
             <label><span data-cl-i18n="set.agent.profile">Agent Connection Profile</span>
               <select id="cl-agent-profile"><option value="" data-cl-i18n="set.agent.profileDefault">(current connection)</option></select>
             </label>
+            <div class="cl-row">
+              <button type="button" id="cl-profile-refresh" class="menu_button" data-cl-i18n="set.agent.profileRefresh">↻ Refresh list</button>
+              <button type="button" id="cl-profile-new" class="menu_button" data-cl-i18n="[title]set.agent.profileNewTitle;set.agent.profileNew">+ New profile</button>
+            </div>
+            <small class="cl-hint" data-cl-i18n="set.agent.profileHint">Pick a saved Connection Profile for the background agent, or leave “(current connection)”. “+ New profile” snapshots your CURRENT connection into a new profile (at your own risk).</small>
             <label><span data-cl-i18n="set.agent.retrieval">Retrieval mode</span>
               <select id="cl-retrieval-mode">
                 <option value="recency" data-cl-i18n="set.agent.retrieval.cheap">Cheap (recency + ToC)</option>
@@ -177,6 +182,13 @@
             <summary data-cl-i18n="set.backup">Backups</summary>
             <label class="checkbox_label"><input type="checkbox" id="cl-backup-enabled"><span data-cl-i18n="set.backup.enable">Keep rolling lorebook snapshots</span></label>
             <label><span data-cl-i18n="set.backup.keep">Snapshots to keep</span> <input type="number" id="cl-backup-keep" min="1" max="50"></label>
+          </details>
+
+          <details class="cl-sub cl-danger">
+            <summary data-cl-i18n="set.danger">⚠️ Danger zone</summary>
+            <small data-cl-i18n="set.danger.note">Reset all Chaotic Lorebooks settings to defaults and erase this chat's memory metadata (buffer, favorites, arcs, recollections, drift flags, backups, activity, queue). Your lorebook entries and the chat itself are NOT touched.</small>
+            <p class="cl-hint cl-danger-scope" data-cl-i18n="set.danger.scope">Note: only the CURRENT chat's memory is cleared. Settings reset applies everywhere. To wipe memory from other chats, open each one and clear it there. To delete already-written entries, remove the lorebook in SillyTavern → World Info.</p>
+            <button type="button" id="cl-clear-data" class="menu_button cl-danger-btn" data-cl-i18n="set.danger.clear">🗑 Clear all data</button>
           </details>
 
           <p class="cl-hint" data-cl-i18n="set.footer">The two-stage cheap→expensive pipeline is built. Run an audit on demand from Memory → Drift → "Audit now".</p>

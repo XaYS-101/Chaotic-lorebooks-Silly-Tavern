@@ -2,7 +2,7 @@
 // двусторонняя привязка инпутов к настройкам. Всё 🟢.
 // Держим index.js тонким — вся возня с панелью тут.
 
-import { getSettings, saveSettings, applyMode } from './settings.js';
+import { getSettings, saveSettings, applyMode, MODULE_NAME } from './settings.js';
 import { t, localize } from './i18n.js';
 
 // id инпута → путь в настройках + тип. Только РЕАЛЬНЫЕ v0-настройки.
@@ -110,15 +110,150 @@ export async function renderSettingsPanel() {
 
   localize(wrap);   // перевести статичные [data-cl-i18n] под текущий язык
   bindInputs();
+  populateAgentProfiles();   // заполнить список профилей подключения (после bindInputs)
+  wireProfileButtons();      // Refresh / + New profile
+  wireDangerZone();          // 🗑 Clear all data
 
   // Смена языка интерфейса → перелокализовать панель «вживую» (без перезагрузки).
   // Значение уже сохранено generic-биндингом выше; getLang сразу видит новое.
   document.getElementById('cl-ui-language')?.addEventListener('change', () => {
     localize(wrap);
+    populateAgentProfiles();  // дефолтная опция «(текущее подключение)» — через t(), перелокализуем
     const modeEl = document.getElementById('cl-mode');
     const hintEl = document.getElementById('cl-mode-hint');
     if (modeEl && hintEl) hintEl.textContent = modeHint(modeEl.value);
   });
+}
+
+// --- Профили подключения (двухмодельная схема) -----------------------------
+// Профили хранит Connection Manager в extensionSettings.connectionManager.profiles
+// (массив { id:UUID, name, mode, ... }); sendRequest идентифицирует профиль по ID.
+function getConnectionProfiles() {
+  try {
+    const cm = SillyTavern.getContext()?.extensionSettings?.connectionManager;
+    return Array.isArray(cm?.profiles) ? cm.profiles : [];
+  } catch { return []; }
+}
+
+/** Перестроить #cl-agent-profile из сохранённых профилей ST, сохранив выбор. */
+function populateAgentProfiles() {
+  const sel = document.getElementById('cl-agent-profile');
+  if (!sel) return;
+  const stored = getByPath(getSettings(), 'agentProfile') || '';
+
+  sel.innerHTML = '';
+  const def = document.createElement('option');     // «(текущее подключение)» = пустая строка
+  def.value = '';
+  def.textContent = t('set.agent.profileDefault');
+  sel.appendChild(def);
+  for (const p of getConnectionProfiles()) {
+    const id = p?.id ?? p?.name;
+    if (!id) continue;
+    const o = document.createElement('option');
+    o.value = String(id);
+    o.textContent = p?.name || String(id);
+    sel.appendChild(o);
+  }
+
+  // Восстановить выбор; если сохранённый профиль исчез — откат на текущее подключение.
+  sel.value = stored;
+  if (sel.value !== stored) {
+    sel.value = '';
+    setByPath(getSettings(), 'agentProfile', '');
+    saveSettings();
+  }
+}
+
+function wireProfileButtons() {
+  document.getElementById('cl-profile-refresh')
+    ?.addEventListener('click', () => populateAgentProfiles());
+  document.getElementById('cl-profile-new')
+    ?.addEventListener('click', () => createProfile().catch((e) =>
+      console.warn('[ChaoticLorebooks] createProfile failed:', e)));
+}
+
+/** «+ New profile» — на свой страх и риск: снимок ТЕКУЩЕГО подключения в новый
+ *  профиль через нативную команду ST /profile-create (она же покажет свой UI). */
+async function createProfile() {
+  const c = SillyTavern.getContext();
+  const POPUP_TYPE = c.POPUP_TYPE ?? {};
+  let name;
+  try {
+    name = await c.callGenericPopup(t('popup.profileName.title'), POPUP_TYPE.INPUT ?? 3, '', {
+      okButton: t('popup.ok'), cancelButton: t('popup.cancel'),
+    });
+  } catch { return; }
+  if (name === false || name == null) return;            // отмена
+  name = String(name).trim();
+  if (!name) return;
+
+  // Имя как один аргумент команды: экранируем кавычки и оборачиваем.
+  const arg = `"${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  try {
+    const run = c.executeSlashCommandsWithOptions || c.executeSlashCommands;
+    if (!run) throw new Error('no slash-command runner');
+    await run.call(c, `/profile-create ${arg}`);
+  } catch (e) {
+    console.warn('[ChaoticLorebooks] /profile-create failed:', e);
+    globalThis.toastr?.error?.(t('toast.profileCreateFail'));
+    return;
+  }
+
+  // Подхватить только что созданный профиль (он становится selectedProfile).
+  populateAgentProfiles();
+  const sel = document.getElementById('cl-agent-profile');
+  const newId = c?.extensionSettings?.connectionManager?.selectedProfile;
+  if (sel && newId && [...sel.options].some((o) => o.value === String(newId))) {
+    sel.value = String(newId);
+    setByPath(getSettings(), 'agentProfile', String(newId));
+    saveSettings();
+  }
+  globalThis.toastr?.success?.(t('toast.profileCreated'));
+}
+
+// --- Опасная зона: полный сброс -------------------------------------------
+function wireDangerZone() {
+  document.getElementById('cl-clear-data')?.addEventListener('click', async () => {
+    const c = SillyTavern.getContext();
+    const POPUP_TYPE = c.POPUP_TYPE ?? {};
+    const POPUP_RESULT = c.POPUP_RESULT ?? {};
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<h3>${t('popup.clear.title')}</h3><p>${t('popup.clear.body')}</p>`;
+    let res;
+    try {
+      res = await c.callGenericPopup(wrap, POPUP_TYPE.CONFIRM ?? 2, '', {
+        okButton: t('popup.clear.ok'), cancelButton: t('popup.cancel'),
+      });
+    } catch { return; }
+    const affirmative = POPUP_RESULT.AFFIRMATIVE ?? 1;
+    if (res !== affirmative && res !== true) return;
+    await clearAllData();
+  });
+}
+
+/** Сбросить настройки к дефолтам + стереть метаданные расширения ТЕКУЩЕГО чата. */
+async function clearAllData() {
+  const c = SillyTavern.getContext();
+  // 1) настройки (глобальные) → дефолты
+  try { delete c.extensionSettings[MODULE_NAME]; } catch { /* нет — и ладно */ }
+  getSettings();   // переинициализировать дефолты
+  saveSettings();
+  // 2) метаданные ТЕКУЩЕГО чата с префиксом chaoticLorebooks_ (native world_info НЕ трогаем)
+  try {
+    const meta = c.chatMetadata;
+    if (meta) {
+      for (const k of Object.keys(meta)) {
+        if (k.startsWith('chaoticLorebooks_')) delete meta[k];
+      }
+      await c.saveMetadata?.();
+    }
+  } catch (e) {
+    console.warn('[ChaoticLorebooks] clear metadata failed:', e);
+  }
+  // 3) перечитать значения в панель
+  fillInputs();
+  populateAgentProfiles();
+  globalThis.toastr?.success?.(t('toast.cleared'));
 }
 
 // Только ЗАПОЛНИТЬ инпуты текущими значениями (без навешивания слушателей).
