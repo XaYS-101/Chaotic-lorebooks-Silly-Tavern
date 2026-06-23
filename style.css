@@ -64,6 +64,17 @@
   box-shadow: -4px 0 20px rgba(0,0,0,0.4);
 }
 
+/* Mobile: drawer spans the full screen instead of clinging to the right edge. */
+@media (max-width: 600px) {
+  .cl-drawer {
+    left: 0; right: 0;
+    width: 100%;
+    max-width: 100%;
+    border-left: none;
+    box-shadow: none;
+  }
+}
+
 .cl-drawer-head {
   display: flex;
   align-items: center;
