@@ -57,6 +57,7 @@ function init() {
   registerSlashCommands(ctx);
   registerJobHandlers();      // обработчики фоновых джоб (Фаза A)
   injectFavoriteStars();      // звёзды на сообщениях
+  setupQuoteFab();            // плавающая кнопка «сохранить цитату» при выделении (тач)
 
   // Сброс UI при смене чата (метаданные буфера/избранного — свои на чат)
   eventSource.on(event_types.CHAT_CHANGED, () => {
@@ -183,6 +184,56 @@ function injectFavoriteStars() {
     });
     const buttons = mesEl.querySelector('.mes_buttons') || mesEl;
     buttons.prepend(star);
+  });
+}
+
+// --- Плавающая кнопка «сохранить цитату» при выделении текста (надёжна на тач:
+// тап по кнопке не теряет выделение, а текст кэшируем заранее) ---
+function setupQuoteFab() {
+  if (document.getElementById('cl-quote-fab')) return;
+  const fab = document.createElement('button');
+  fab.id = 'cl-quote-fab';
+  fab.className = 'cl-quote-fab cl-hidden';
+  fab.textContent = `★ ${t('ui.quoteFab')}`;
+  document.body.appendChild(fab);
+
+  let cached = null;     // { idx, text }
+  let hideTimer = null;
+
+  const hide = () => { fab.classList.add('cl-hidden'); cached = null; };
+
+  const update = () => {
+    const sel = window.getSelection?.();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { scheduleHide(); return; }
+    const text = sel.toString().trim();
+    const mesEl = sel.anchorNode?.parentElement?.closest?.('#chat .mes');
+    if (!text || !mesEl) { scheduleHide(); return; }
+    const idx = Number(mesEl.getAttribute('mesid'));
+    if (Number.isNaN(idx)) { scheduleHide(); return; }
+    cached = { idx, text };
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const top = Math.max(8, rect.top - 44);
+    const left = Math.min(window.innerWidth - 130, Math.max(8, rect.left));
+    fab.style.top = `${top}px`;
+    fab.style.left = `${left}px`;
+    fab.classList.remove('cl-hidden');
+  };
+
+  const scheduleHide = () => { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 150); };
+
+  document.addEventListener('selectionchange', () => { clearTimeout(hideTimer); hideTimer = setTimeout(update, 120); });
+  document.addEventListener('scroll', hide, true);
+
+  // preventDefault на старте тача/мыши — не сбрасываем выделение до click.
+  fab.addEventListener('mousedown', (e) => e.preventDefault());
+  fab.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+  fab.addEventListener('click', async () => {
+    if (!cached) return;
+    const { idx, text } = cached;
+    hide();
+    await addQuote(idx, text);
+    globalThis.toastr?.success?.(t('toast.quoteSaved'));
+    window.getSelection?.()?.removeAllRanges?.();
   });
 }
 

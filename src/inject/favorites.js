@@ -54,10 +54,13 @@ export async function addQuote(mesIndex, text, mode) {
   await persist();
 }
 
+// Целые соо бывают длинными → не режем на 500 (это и было «частичное сохранение»).
+// Держим щедрый потолок только против разрастания метаданных.
+const MAX_FAV_CHARS = 8000;
 function mk(mesIndex, text, kind, mode) {
   return {
     id: `${kind[0]}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    mesIndex, text: String(text).trim().slice(0, 500),
+    mesIndex, text: String(text).trim().slice(0, MAX_FAV_CHARS),
     kind, mode, enabled: true, pinned: false, addedAt: Date.now(),
   };
 }
