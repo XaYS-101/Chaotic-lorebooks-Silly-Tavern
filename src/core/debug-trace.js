@@ -8,6 +8,7 @@ import { getLog } from '../memory/activity-log.js';
 const ARCS_KEY = 'chaoticLorebooks_arcs';
 const BUFFER_KEY = 'chaoticLorebooks_buffer';
 const WM_KEY = 'chaoticLorebooks_watermark';
+const SCENE_STATS_KEY = 'chaoticLorebooks_sceneStats';
 const HARD_CAP = 2000;            // backstop, чтобы буфер не рос без предела
 
 let ring = [];
@@ -65,6 +66,7 @@ export function buildDiagnostics() {
     },
     arcs: Array.isArray(meta[ARCS_KEY]) ? meta[ARCS_KEY] : [],
     buffer: Array.isArray(meta[BUFFER_KEY]) ? meta[BUFFER_KEY] : [],
+    sceneStats: (meta[SCENE_STATS_KEY] && typeof meta[SCENE_STATS_KEY] === 'object') ? meta[SCENE_STATS_KEY] : null,
     activityLog: getLog(),
     trace: getTrace(),
   };

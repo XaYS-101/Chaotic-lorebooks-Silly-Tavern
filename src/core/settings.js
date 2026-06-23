@@ -48,9 +48,14 @@ const DEFAULTS = Object.freeze({
 
   // --- Детектор сцены (🟢, без LLM) ---
   sceneDetector: {
-    sensitivity: 0.5,    // 0 = редко считаем сдвигом, 1 = агрессивно
-    newWordRatio: 0.5,   // доля новых слов в окне → динамический троттлинг агента
+    algo: 'adaptive',    // 'adaptive' = IDF-косинус + онлайн z-порог + CUSUM; 'legacy' = старый Jaccard+фикс.порог
+    sensitivity: 0.5,    // 0 = редко считаем сдвигом, 1 = агрессивно (в adaptive мапится в z-порог k=2−sens·1.5)
+    newWordRatio: 0.5,   // (legacy/warmup) доля новых слов в окне → динамический троттлинг агента
     maxTurnsCap: 8,      // never-starve: даже в статичной сцене будим раз в N ходов
+    ewmaAlpha: 0.2,      // adaptive: коэффициент EWMA для онлайн-среднего/дисперсии дис-similarity (~окно 5 ходов)
+    cusumSlack: 0.5,     // adaptive: κ — «мёртвая зона» CUSUM в единицах σ (гасит мелкий шум)
+    cusumThreshold: 5,   // adaptive: h — порог накопителя CUSUM в единицах σ (устойчивый сдвиг)
+    warmupTurns: 4,      // adaptive: первые N ходов идём по legacy, пока копится статистика
   },
 
   // --- Буфер мыслей ---

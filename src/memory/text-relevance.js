@@ -81,6 +81,37 @@ export function jaccard(aTokens, bTokens) {
 }
 
 /**
+ * IDF по корпусу документов-токенов (документ = одно сообщение). Возвращает функцию
+ * idf(token). IDF считается ПО САМОМУ чату → метрика самокалибрующаяся (никаких внешних
+ * словарей/имён), инвариантна к сеттингу. Формула как в BM25: ln(1+(N−df+0.5)/(df+0.5)).
+ */
+export function buildIdf(docsTokens) {
+  const N = (docsTokens?.length) || 1;
+  const df = new Map();
+  for (const d of (docsTokens || [])) for (const t of new Set(d)) df.set(t, (df.get(t) || 0) + 1);
+  return (t) => Math.log(1 + (N - (df.get(t) || 0) + 0.5) / ((df.get(t) || 0) + 0.5));
+}
+
+/**
+ * Косинус между двумя списками токенов во взвешивании tf·idf (0..1). В отличие от Jaccard
+ * редкие/топиковые слова получают вес, вездесущие гасятся → различает СМЕНУ ТЕМЫ, а не
+ * оборот лексики (Jaccard на разреженном мешке слов насыщается ~0.2-0.3 и почти бесполезен).
+ */
+export function tfidfCosine(aTokens, bTokens, idf) {
+  const vec = (toks) => {
+    const m = new Map();
+    for (const t of (toks || [])) m.set(t, (m.get(t) || 0) + 1);
+    for (const [t, tf] of m) m.set(t, tf * idf(t));
+    return m;
+  };
+  const A = vec(aTokens), B = vec(bTokens);
+  let dot = 0, na = 0, nb = 0;
+  for (const [, w] of A) na += w * w;
+  for (const [t, w] of B) { nb += w * w; const wa = A.get(t); if (wa) dot += w * wa; }
+  return (na && nb) ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
+
+/**
  * BM25-ранжирование документов под запрос. Возвращает [{doc, score}] по убыванию.
  * docs: [{ tokens:string[], ... }]. query: string[].
  */
