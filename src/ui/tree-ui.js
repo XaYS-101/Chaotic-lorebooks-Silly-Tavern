@@ -39,7 +39,10 @@ export function ensureDrawer() {
   drawerEl.innerHTML = `
     <div class="cl-drawer-head">
       <span>🌀 Chaotic Lorebooks</span>
-      <button class="cl-close" title="${ta('ui.close')}">✕</button>
+      <div class="cl-head-btns">
+        <button class="cl-help" title="${ta('ui.legend.title')}">?</button>
+        <button class="cl-close" title="${ta('ui.close')}">✕</button>
+      </div>
     </div>
     <div class="cl-status" id="cl-status"></div>
     <div class="cl-tabs">
@@ -50,9 +53,33 @@ export function ensureDrawer() {
     <div class="cl-body"></div>`;
   document.body.appendChild(drawerEl);
   drawerEl.querySelector('.cl-close').addEventListener('click', hideDrawer);
+  drawerEl.querySelector('.cl-help')?.addEventListener('click', showLegend);
   drawerEl.querySelectorAll('.cl-tab').forEach((tab) =>
     tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
   return drawerEl;
+}
+
+// Легенда условных обозначений (эмодзи) — попап со списком символов и значений.
+function showLegend() {
+  const c = SillyTavern.getContext();
+  const rows = [
+    ['▶ / ⏸', t('ui.legend.chat')],
+    ['★', t('ui.legend.message')],
+    ['❝', t('ui.legend.quote')],
+    ['👁 / 🚫', t('ui.legend.enabled')],
+    ['📌', t('ui.legend.pin')],
+    ['📚', t('ui.legend.promote')],
+    ['✕', t('ui.legend.remove')],
+    ['permanent · chance · relevant', t('ui.legend.modes')],
+    ['★ · • · ·', t('ui.legend.significance')],
+    ['📸 / ⏪', t('ui.legend.restore')],
+  ];
+  const wrap = document.createElement('div');
+  wrap.className = 'cl-choose cl-legend';
+  wrap.innerHTML = `<h3>${escapeHtml(t('ui.legend.title'))}</h3>`
+    + rows.map(([sym, desc]) =>
+      `<div class="cl-legend-row"><span class="cl-legend-sym">${sym}</span><span>${escapeHtml(desc)}</span></div>`).join('');
+  try { c.callGenericPopup(wrap, c.POPUP_TYPE?.TEXT ?? 1, '', { okButton: t('ui.close') }); } catch { /* no-op */ }
 }
 
 export async function toggleDrawer() {
@@ -398,12 +425,16 @@ function renderSavedHtml() {
   if (!favs.length) {
     return chips + `<p class="cl-empty">${t('ui.saved.empty')}</p>`;
   }
-  const modeOpt = (v, cur) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${v}</option>`;
+  const modeLabel = { permanent: t('ui.mode.permanent'), chance: t('ui.mode.chance'), relevant: t('ui.mode.relevant') };
+  const modeOpt = (v, cur) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${modeLabel[v] ?? v}</option>`;
+  const kindIcon = (f) => (f.kind === 'quote'
+    ? `<span class="cl-kind" title="${ta('ui.legend.quote')}">❝</span>`
+    : `<span class="cl-kind" title="${ta('ui.legend.message')}">★</span>`);
   const rows = favs.map((f) => `
     <div class="cl-savedrow ${f.enabled ? '' : 'cl-disabled'}" data-id="${f.id}">
       <textarea class="cl-saved-text" data-edit="${f.id}">${escapeHtml(f.text)}</textarea>
       <div class="cl-saved-actions">
-        <span class="cl-weight">${f.kind === 'quote' ? '❝' : '✉'}</span>
+        ${kindIcon(f)}
         <select class="cl-mode" data-mode="${f.id}" title="${ta('ui.title.injectionMode')}">
           ${modeOpt('permanent', f.mode)}${modeOpt('chance', f.mode)}${modeOpt('relevant', f.mode)}
         </select>
@@ -557,8 +588,14 @@ function wireMemory(body) {
 function wireSaved(body) {
   body.querySelectorAll('[data-chip]').forEach((b) =>
     b.addEventListener('click', () => { savedFilter = b.dataset.chip; switchTab('saved'); }));
-  body.querySelectorAll('[data-edit]').forEach((ta) =>
-    ta.addEventListener('change', () => editText(ta.dataset.edit, ta.value)));
+  // Высота поля = высоте контента, и растёт при наборе → re-render не «сбрасывает
+  // растянутое поле к исходному размеру» (длинные соо больше не урезаются на 500).
+  const autoSize = (ta) => { ta.style.height = 'auto'; ta.style.height = `${ta.scrollHeight}px`; };
+  body.querySelectorAll('[data-edit]').forEach((ta) => {
+    autoSize(ta);
+    ta.addEventListener('input', () => autoSize(ta));
+    ta.addEventListener('change', () => editText(ta.dataset.edit, ta.value));
+  });
   body.querySelectorAll('[data-mode]').forEach((sel) =>
     sel.addEventListener('change', () => setMode(sel.dataset.mode, sel.value)));
   body.querySelectorAll('[data-toggle]').forEach((b) =>
