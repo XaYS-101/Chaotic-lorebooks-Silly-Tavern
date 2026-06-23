@@ -121,6 +121,7 @@ export async function renderSettingsPanel() {
   wireSourceSwitch();        // ST-профиль ⇄ кастомный эндпоинт (показ блоков)
   wireDangerZone();          // 🗑 Clear all data
   wireDiagnostics();         // ⬇ Download diagnostics
+  wireBackfill();            // ↻ Process existing messages
 
   // Смена языка интерфейса → перелокализовать панель «вживую» (без перезагрузки).
   // Значение уже сохранено generic-биндингом выше; getLang сразу видит новое.
@@ -373,6 +374,19 @@ function wireDangerZone() {
     if (res !== affirmative && res !== true) return;
     const scope = wrap.querySelector('input[name="cl-clear-scope"]:checked')?.value || 'chat';
     await clearAllData(scope);
+  });
+}
+
+// --- Backfill: разовый прогон по поздно-включённому чату ------------------
+function wireBackfill() {
+  document.getElementById('cl-backfill-run')?.addEventListener('click', async () => {
+    try {
+      const m = await import('../memory/backfill.js');
+      await m.runBackfillFlow();
+    } catch (e) {
+      console.warn('[ChaoticLorebooks] backfill button:', e);
+      globalThis.toastr?.error?.(t('toast.backfillNone'));
+    }
   });
 }
 

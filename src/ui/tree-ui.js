@@ -22,6 +22,7 @@ import {
   getGists, setActive as setRecActive, bulkSetArc, removeGist,
 } from '../memory/recollection.js';
 import { getStats as graphStats } from '../memory/knowledge-graph.js';
+import { backfillAvailable, getBackfillInfo, runBackfillFlow } from '../memory/backfill.js';
 import { getDriftFlags, resolveDriftFlag } from '../memory/deep-extractor.js';
 import { runAudit } from '../memory/drift-monitor.js';
 import { getLastReport, autoReview, review } from '../memory/context-budget.js';
@@ -145,6 +146,7 @@ async function refreshStatus() {
 // --- Вкладка Memory ---
 async function renderMemoryHtml() {
   return `
+    ${renderBackfillBanner()}
     ${renderBudgetSection()}
     ${renderRecollectionsSection()}
     ${await renderTreeSection()}
@@ -155,6 +157,15 @@ async function renderMemoryHtml() {
       <input id="cl-note-input" type="text" placeholder="${ta('ui.note.placeholder')}">
       <button id="cl-note-add">${t('ui.btn.addNote')}</button>
     </div>`;
+}
+
+function renderBackfillBanner() {
+  if (!backfillAvailable()) return '';
+  const { count } = getBackfillInfo();
+  return `<div class="cl-backfill-banner">
+    <span class="cl-backfill-banner-text">${t('backfill.banner', { n: count })}</span>
+    <button id="cl-backfill-banner-btn" class="cl-backfill-banner-btn">${t('backfill.popup.process')}</button>
+  </div>`;
 }
 
 function renderRecollectionsSection() {
@@ -458,6 +469,11 @@ function wireBody(body, name) {
 }
 
 function wireMemory(body) {
+  // Backfill-баннер: открыть попап с выбором Full/Light и перерисовать таб после.
+  body.querySelector('#cl-backfill-banner-btn')?.addEventListener('click', async () => {
+    try { await runBackfillFlow(); } catch (e) { console.warn('[ChaoticLorebooks] backfill flow:', e); }
+    await switchTab('memory');
+  });
   // добавить авторскую заметку (origin=user, никогда не перезаписывается автоматикой)
   body.querySelector('#cl-note-add')?.addEventListener('click', async () => {
     const input = body.querySelector('#cl-note-input');

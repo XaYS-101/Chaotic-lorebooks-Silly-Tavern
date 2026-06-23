@@ -114,6 +114,12 @@ const DEFAULTS = Object.freeze({
     editDirtyThreshold: 0.10, // < этой доли изменённых слов → опечатка, арку не метим
   },
 
+  // Catch-up backfill for chats enabled late (offer auto-clears once memory grows
+  // forward or backfill runs).
+  backfill: {
+    threshold: 10,         // длина чата, выше которой предлагаем разовый backfill
+  },
+
   // Бэкапы книги.
   backup: {
     enabled: true,

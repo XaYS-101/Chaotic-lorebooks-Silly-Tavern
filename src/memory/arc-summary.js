@@ -51,7 +51,11 @@ const SCHEMA = {
  */
 export async function summarizeArc(arcId) {
   const s = getSettings();
-  if (s.extraction?.enabled === false || !s.autonomous?.enabled) return false;
+  if (s.extraction?.enabled === false) return false;
+  // На время разового backfill'а (поздно-включённый чат) пускаем извлечение и в
+  // Balanced/Lite — флаг живёт в chatMetadata, очередь его же чекает.
+  const backfillActive = !!(SillyTavern.getContext().chatMetadata?.chaoticLorebooks_backfillActive);
+  if (!s.autonomous?.enabled && !backfillActive) return false;
 
   const arc = getArc(arcId);
   if (!arc || !arc.sealed) return false;
@@ -111,7 +115,7 @@ export async function summarizeArc(arcId) {
   // 3) STANDALONE keyed-энтри арки (книга помнит и без расширения).
   //    Арка 0 = фундамент знакомства → автопин; значимая арка (≥ pinThreshold) тоже.
   const keys = deriveArcKeys(triples, text);
-  const isFoundation = arcId === 0;
+  const isFoundation = arc.foundation === true || arcId === 0;
   const pinned = isFoundation || (deep && significance >= (s.deepExtract?.pinThreshold ?? 0.7));
   const content = [gist, ...voiceQuotes.map((q) => `“${q}”`)].join('\n');
   await enqueueWrite({

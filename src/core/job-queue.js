@@ -13,6 +13,28 @@
 import { getSettings } from './settings.js';
 
 const QUEUE_KEY = 'chaoticLorebooks_queue';
+const BACKFILL_KEY = 'chaoticLorebooks_backfillActive';
+
+// Колбэки на полный дренаж очереди (используется backfill'ом: дождаться, пока
+// все arc-extract'ы прошли, и запустить auto-hide + тост).
+const drainedCallbacks = [];
+export function onQueueDrained(fn) { if (typeof fn === 'function') drainedCallbacks.push(fn); }
+function fireDrained() {
+  for (const fn of drainedCallbacks.splice(0)) {
+    try { Promise.resolve(fn()).catch((e) => console.warn('[ChaoticLorebooks] onDrained:', e)); }
+    catch (e) { console.warn('[ChaoticLorebooks] onDrained:', e); }
+  }
+}
+
+/** Включить/выключить «backfill активен»: на время прогон extraction разрешён вне Autonomous. */
+export async function setBackfillActive(on) {
+  const meta = ctx().chatMetadata;
+  if (!meta) return;
+  meta[BACKFILL_KEY] = !!on;
+  await persist();
+  if (on) start();
+}
+export function isBackfillActive() { return !!ctx().chatMetadata?.[BACKFILL_KEY]; }
 
 function ctx() { return SillyTavern.getContext(); }
 function nowTs() { return Date.now(); }
@@ -68,7 +90,9 @@ export function start() {
 
 async function drain() {
   const s = getSettings();
-  if (s.autonomous?.enabled === false) return;       // автоном выключен — стоим
+  // Стоим, только если ВЫКЛ автоном И НЕ активен backfill — иначе backfill не пройдёт
+  // в Balanced/Lite.
+  if (s.autonomous?.enabled === false && !isBackfillActive()) return;
   const concurrency = Math.max(1, Math.min(2, s.autonomous?.concurrency ?? 1));
 
   // Простой цикл: берём pending-джобы, пока есть слоты и бюджет.
@@ -76,7 +100,16 @@ async function drain() {
   while (true) {
     const q = getQueue();
     const next = q.find((j) => j.status === 'pending');
-    if (!next) break;
+    if (!next) {
+      // Pending пусто и ничего не крутится → backfill сошёлся; чистим флаг и зовём колбэки.
+      if (running === 0 && isBackfillActive()) {
+        const meta = ctx().chatMetadata;
+        if (meta) meta[BACKFILL_KEY] = false;
+        await persist();
+        fireDrained();
+      }
+      break;
+    }
     if (running >= concurrency) break;
     if (!underBudget()) break;                        // упёрлись в budget cap
 

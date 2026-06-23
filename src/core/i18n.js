@@ -301,6 +301,24 @@ const STRINGS = {
     'cmd.arc': 'Seal the current arc now (explicit scene break)',
     'cmd.reveal': 'Reveal all auto-hidden messages',
     'cmd.chat': 'Toggle Chaotic Lorebooks on/off for the current chat',
+    'cmd.backfill': 'One-time catch-up: process the existing chat history',
+
+    // --- backfill (поздно-включённый чат) ---
+    'backfill.banner': '${n} messages predate Chaotic Lorebooks — process them?',
+    'backfill.popup.title': 'Catch up on this chat',
+    'backfill.popup.body': '${n} historical messages (~${arcs} arc(s)) are not yet in memory. How should we process them?',
+    'backfill.popup.full': 'Full — cheap AI builds gist, voice quotes, graph, lorebook entries',
+    'backfill.popup.light': 'Light — segment + auto-hide only (no LLM calls)',
+    'backfill.popup.warn': 'Light hides old messages without summarizing them, so they will not appear in recollections.',
+    'backfill.popup.process': 'Process',
+    'backfill.popup.notNow': 'Not now',
+    'backfill.settings.title': 'Catch-up backfill',
+    'backfill.settings.desc': 'For chats where the extension was enabled late: segment the prior history into arcs (Light) or process them with the cheap AI (Full → recollections + graph + lorebook entries). One-time; this offer auto-clears once memory grows forward.',
+    'backfill.settings.button': '↻ Process existing messages',
+    'toast.backfillQueued': 'Backfill queued: ${n} arc(s). Cheap-AI processing in background.',
+    'toast.backfillDone': 'Backfill done: ${n} arc(s) processed.',
+    'toast.backfillLight': 'Sealed ${n} arc(s) and hid old slabs (no LLM).',
+    'toast.backfillNone': 'Nothing to backfill in this chat.',
   },
 
   ru: {
@@ -591,6 +609,24 @@ const STRINGS = {
     'cmd.arc': 'Запечатать текущую арку (явная смена сцены)',
     'cmd.reveal': 'Показать все авто-скрытые сообщения',
     'cmd.chat': 'Включить/выключить Chaotic Lorebooks для текущего чата',
+    'cmd.backfill': 'Разовый catch-up: обработать существующую историю чата',
+
+    // --- backfill (поздно-включённый чат) ---
+    'backfill.banner': '${n} соо появилось до включения Chaotic Lorebooks — обработать?',
+    'backfill.popup.title': 'Догнать этот чат',
+    'backfill.popup.body': '${n} исторических соо (~${arcs} арк(и)) ещё нет в памяти. Как их обработать?',
+    'backfill.popup.full': 'Полная — дешёвый ИИ соберёт огрызки, голос-цитаты, граф, энтри лорбука',
+    'backfill.popup.light': 'Лёгкая — только нарезать + спрятать (без LLM)',
+    'backfill.popup.warn': 'Лёгкая прячет старые соо без саммари — они не появятся в воспоминаниях.',
+    'backfill.popup.process': 'Обработать',
+    'backfill.popup.notNow': 'Не сейчас',
+    'backfill.settings.title': 'Catch-up backfill',
+    'backfill.settings.desc': 'Для чатов, где расширение включили поздно: нарезать прошлую историю на арки (Лёгкая) или прогнать через дешёвую ИИ (Полная → воспоминания + граф + энтри лорбука). Разово; предложение само исчезает, когда расширение начинает накапливать память вперёд.',
+    'backfill.settings.button': '↻ Обработать существующие сообщения',
+    'toast.backfillQueued': 'Backfill в очереди: ${n} арк(и). Дешёвая ИИ работает в фоне.',
+    'toast.backfillDone': 'Backfill завершён: обработано ${n} арк(и).',
+    'toast.backfillLight': 'Запечатано ${n} арк(и), старое скрыто (без LLM).',
+    'toast.backfillNone': 'Нечего обрабатывать в этом чате.',
   },
 };
 

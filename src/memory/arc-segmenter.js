@@ -13,6 +13,7 @@ import { trace } from '../core/debug-trace.js';
 
 const ARCS_KEY = 'chaoticLorebooks_arcs';
 const WM_KEY = 'chaoticLorebooks_watermark';
+const BASELINE_KEY = 'chaoticLorebooks_baseline';
 
 // Маркеры границы сцены/арки.
 const ARC_MARKER_RE = /(^|\s)\/cl-arc\b/i;
@@ -29,6 +30,8 @@ function arcs() {
 }
 function getWatermark() { return ctx().chatMetadata?.[WM_KEY] ?? -1; }
 function setWatermark(v) { const m = ctx().chatMetadata; if (m) m[WM_KEY] = v; }
+export function getBaseline() { const v = ctx().chatMetadata?.[BASELINE_KEY]; return v == null ? null : v; }
+function setBaseline(v) { const m = ctx().chatMetadata; if (m) m[BASELINE_KEY] = v; }
 async function persist() { try { await ctx().saveMetadata(); } catch { /* no-op */ } }
 
 // Снимок текста сообщений (в памяти) для гейта опечаток на правке.
@@ -47,7 +50,13 @@ export function getOpenArc() {
   const a = arcs();
   let open = a.find((x) => !x.sealed);
   if (!open) {
-    const prevEnd = a.length ? Math.max(...a.map((x) => x.end ?? -1)) : -1;
+    // Пусто и есть baseline → форвард-арки стартуют ОТ baseline (исторический префикс
+    // [0..baseline-1] оставляем неприкрытым, чтобы auto-hide его не трогал; backfill
+    // позже сам нарежет его на арки sealRange'ом).
+    const base = getBaseline();
+    const prevEnd = a.length
+      ? Math.max(...a.map((x) => x.end ?? -1))
+      : (base != null ? base - 1 : -1);
     open = { id: a.length, start: prevEnd + 1, end: null, sealed: false, dirty: false, tokensHash: '', summaryGist: '' };
     a.push(open);
   }
@@ -234,3 +243,120 @@ export async function reconcileArcsToChat() {
 
 /** Сброс снимка при смене чата (метаданные арок — свои на чат). */
 export function reset() { textSnap.clear(); }
+
+// ===== Backfill: поздно-включённый чат =====
+
+/**
+ * Первый контакт с уже существующим чатом: если расширение никогда не видело
+ * этот чат (watermark отсутствует) И длина чата > threshold — садим baseline,
+ * чтобы getOpenArc стартовал с baseline, а исторический префикс [0..baseline-1]
+ * остался уцелевшим под backfill (мега-арки и слепого auto-hide не будет).
+ * Идемпотентно: повторный вызов после baseline уже стоит — no-op.
+ * Возвращает true, если что-то посадили.
+ */
+export async function seedBaselineIfNeeded(threshold = 10) {
+  const meta = ctx().chatMetadata;
+  if (!meta) return false;
+  // Уже знаком? — выходим.
+  if (meta[WM_KEY] != null || meta[BASELINE_KEY] != null) return false;
+  const len = chat().length;
+  if (len <= threshold) return false;      // короткий чат → старое поведение
+  setWatermark(len - 2);
+  setBaseline(len);
+  await persist();
+  return true;
+}
+
+/**
+ * Сколько сообщений в [0..baseline-1] ещё НЕ покрыты sealed-аркой.
+ * Возвращает 0, если baseline не садился или префикс уже покрыт.
+ */
+export function uncoveredPrefixLen() {
+  const base = getBaseline();
+  if (base == null) return 0;
+  const a = arcs();
+  let covered = 0;
+  for (const x of a) {
+    if (!x.sealed || x.start == null || x.end == null) continue;
+    if (x.start >= base) continue;
+    const lo = Math.max(0, x.start);
+    const hi = Math.min(base - 1, x.end);
+    if (hi >= lo) covered += (hi - lo + 1);
+  }
+  return Math.max(0, base - covered);
+}
+
+/** id для следующей арки — уникальный (выше всех существующих). */
+function nextArcId() {
+  const a = arcs();
+  return a.length ? Math.max(...a.map((x) => Number(x.id) || 0)) + 1 : 0;
+}
+
+/**
+ * Запечатать диапазон [start..end] как готовую sealed-арку (для backfill'а
+ * исторического префикса). Открытую форвард-арку не трогаем.
+ */
+export async function sealRange(start, end, opts = {}) {
+  if (!(end >= start) || start < 0) return null;
+  const a = arcs();
+  const arc = {
+    id: nextArcId(),
+    start, end,
+    sealed: true, dirty: false,
+    foundation: !!opts.foundation,
+    tokensHash: tokHash(slabText(start, end)),
+    summaryGist: '',
+  };
+  a.push(arc);
+  trace('arc.seal', { arc: arc.id, start, end, len: end - start + 1, reason: 'backfill' });
+  return arc;
+}
+
+/**
+ * Нарезать неприкрытый префикс [0..baseline-1] на запечатанные арки по capMessages.
+ * Самую раннюю помечаем foundation:true. Идемпотентно: если префикс уже покрыт — [].
+ * Возвращает массив id новосозданных арок.
+ */
+export async function backfillArcs() {
+  const base = getBaseline();
+  if (base == null || base <= 0) return [];
+  const cap = Math.max(5, getSettings().arc?.capMessages ?? 40);
+
+  // Найти уже покрытые диапазоны в [0..base-1], чтобы режемое было только дырами.
+  const sealedInPrefix = arcs()
+    .filter((x) => x.sealed && x.start != null && x.end != null && x.start < base)
+    .map((x) => ({ start: Math.max(0, x.start), end: Math.min(base - 1, x.end) }))
+    .sort((p, q) => p.start - q.start);
+
+  const ids = [];
+  let cursor = 0;
+  let first = true;
+  for (const seg of sealedInPrefix) {
+    if (seg.start > cursor) {
+      const fromIds = await chunkAndSeal(cursor, seg.start - 1, cap, first);
+      ids.push(...fromIds);
+      first = false;
+    }
+    cursor = Math.max(cursor, seg.end + 1);
+  }
+  if (cursor <= base - 1) {
+    const fromIds = await chunkAndSeal(cursor, base - 1, cap, first);
+    ids.push(...fromIds);
+  }
+  if (ids.length) await persist();
+  return ids;
+}
+
+async function chunkAndSeal(lo, hi, cap, firstIsFoundation) {
+  const out = [];
+  let s = lo;
+  let first = firstIsFoundation;
+  while (s <= hi) {
+    const e = Math.min(s + cap - 1, hi);
+    const arc = await sealRange(s, e, { foundation: first && s === 0 });
+    if (arc) out.push(arc.id);
+    first = false;
+    s = e + 1;
+  }
+  return out;
+}

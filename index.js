@@ -12,7 +12,8 @@ import { reset as resetScene } from './src/memory/scene-detector.js';
 import { resetCache as resetMemoryCache } from './src/memory/memory-engine.js';
 import { log as logActivity } from './src/memory/activity-log.js';
 // --- Фаза A — фундамент ---
-import { onMessage as arcOnMessage, onEdit as arcOnEdit, reset as resetArc, sealReady } from './src/memory/arc-segmenter.js';
+import { onMessage as arcOnMessage, onEdit as arcOnEdit, reset as resetArc, sealReady, seedBaselineIfNeeded } from './src/memory/arc-segmenter.js';
+import { maybeOfferBackfill, runBackfillFlow } from './src/memory/backfill.js';
 import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from './src/memory/auto-hide.js';
 import { resumeAfterRestart, registerHandler, enqueue } from './src/core/job-queue.js';
 import { noteUserEditing } from './src/lorebook/lorebook-writer.js';
@@ -60,12 +61,19 @@ function init() {
   setupQuoteFab();            // плавающая кнопка «сохранить цитату» при выделении (тач)
 
   // Сброс UI при смене чата (метаданные буфера/избранного — свои на чат)
-  eventSource.on(event_types.CHAT_CHANGED, () => {
+  eventSource.on(event_types.CHAT_CHANGED, async () => {
     purgeCurrentChatIfArmed().catch(warn); // if the purge backstop is armed, scrub this chat's keys
     resetScene(); resetArc(); resetMemoryCache(); injectFavoriteStars();
     resumeAfterRestart();     // возобновить persisted-очередь нового чата
     maybeHandleFork().catch(warn); // ветка чата делит книгу с родителем? предложить форк
     maybeHandleGlobal().catch(warn); // книга, в которую пишем, активна глобально? предложить копию
+    // Поздно-включённый чат: посадить baseline (анти-мега-арка) и при необходимости
+    // предложить разовый backfill (модал 1 раз на чат + баннер в дровере).
+    try {
+      const threshold = getSettings().backfill?.threshold ?? 10;
+      await seedBaselineIfNeeded(threshold);
+      await maybeOfferBackfill();
+    } catch (e) { warn(e); }
   });
   // Долить звёзды на свежеотрисованные сообщения
   eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, () => injectFavoriteStars());
@@ -229,7 +237,9 @@ function setupQuoteFab() {
     if (Number.isNaN(idx)) { scheduleHide(); return; }
     cached = { idx, text };
     const rect = range.getBoundingClientRect();
-    const top = Math.max(8, rect.top - 44);
+    // Появляемся ПОД выделением: сверху на мобиле живёт нативный Copy/Share-меню,
+    // которое перекрывает FAB и мешает попасть пальцем.
+    const top = Math.min(window.innerHeight - 48, Math.max(8, rect.bottom + 8));
     const left = Math.min(window.innerWidth - 130, Math.max(8, rect.left));
     fab.style.top = `${top}px`;
     fab.style.left = `${left}px`;
@@ -303,6 +313,12 @@ function registerSlashCommands(ctx) {
       return '';
     },
     helpString: t('cmd.chat'),
+  }));
+  // Разовый backfill для поздно-включённого чата (Full = дешёвый ИИ / Light = без ИИ).
+  SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+    name: `${p}-backfill`,
+    callback: async () => { await runBackfillFlow(); return ''; },
+    helpString: t('cmd.backfill'),
   }));
 }
 

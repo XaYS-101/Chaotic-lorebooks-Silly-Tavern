@@ -211,6 +211,12 @@
           </details>
 
           <details class="cl-sub">
+            <summary data-cl-i18n="backfill.settings.title">Catch-up backfill</summary>
+            <small data-cl-i18n="backfill.settings.desc">For chats where the extension was enabled late: segment the prior history into arcs (Light) or process them with the cheap AI (Full → recollections + graph + lorebook entries). One-time; this offer auto-clears once memory grows forward.</small>
+            <button type="button" id="cl-backfill-run" class="menu_button" data-cl-i18n="backfill.settings.button">↻ Process existing messages</button>
+          </details>
+
+          <details class="cl-sub">
             <summary data-cl-i18n="set.debug.title">Diagnostics</summary>
             <label class="checkbox_label"><input type="checkbox" id="cl-debug-enabled"><span data-cl-i18n="set.debug.enable">Record a decision trace</span></label>
             <p class="cl-hint" data-cl-i18n="set.debug.note">Logs arc seals, scene shifts, agent requests and buffer writes in memory. No effect on chat or memory behaviour. Download bundles current settings (API keys hidden), arcs, buffer, activity log and the trace.</p>
