@@ -11,13 +11,22 @@ const META_KEY = 'chaoticLorebooks_buffer';
 
 // λ растёт с decayPerTurn; делится на important и множится на «летучесть» вида.
 const LAMBDA_PER_UNIT = 0.35;
-const KIND_VOLATILITY = { goal: 0.5, trait: 0.7, lore: 0.3, thread: 1 };
+// Летучесть по виду: чувства/черты (trait) и лор — СТАБИЛЬНЫ (живут долго); цели —
+// быстро тают, если не подкрепляются; thread — самый транзит. (Раньше trait тух
+// быстрее goal — это и был баг «чувства-константы оставались в короткой памяти».)
+const KIND_VOLATILITY = { goal: 0.85, trait: 0.3, lore: 0.2, thread: 1.0 };
 const DEFAULT_IMPORTANCE = { goal: 2, trait: 2, lore: 3, thread: 1 };
 const STATE_KINDS = new Set(['trait', 'thread']);  // один пункт на (субъект, вид)
+const CONSTANT_KINDS = new Set(['trait', 'lore']); // ярус «констант» при importance 3
 const REINFORCE_BETA = 0.5;   // W_new = ceil - (ceil - W_old)*β  (асимптотика к ceil)
 const SCENE_PENALTY = 0.2;    // множитель к транзитным мыслям при сдвиге сцены
 const DROP_FLOOR = 0.4;       // экспонента не достигает 0 → нужен явный пол
 const SIM_THRESHOLD = 0.5;    // нечёткое совпадение целей/лора (Jaccard)
+
+// «Константа»: важная (importance 3) черта/чувство/лор — ведёт себя как пин:
+// не тухнет, не выпадает по полу, не вытесняется лимитом. Так character-константы
+// (устойчивые чувства, ядро личности, незыблемый факт) держатся долго.
+const isConstant = (it) => (it.importance || 1) >= 3 && CONSTANT_KINDS.has(it.kind);
 
 function ctx() { return SillyTavern.getContext(); }
 export function getBuffer() {
@@ -77,14 +86,15 @@ export async function tickBuffer() {
   const buf = getBuffer();
   const lambdaBase = LAMBDA_PER_UNIT * (s.decayPerTurn || 1);
 
-  // 1) экспоненциальный спад: W *= e^(-λ_eff)
+  // 1) экспоненциальный спад: W *= e^(-λ_eff). Константы не тухнут (ведут себя как пин).
   for (const it of buf) {
+    if (isConstant(it)) continue;
     const lambda = lambdaBase * (KIND_VOLATILITY[it.kind] ?? 1) / (it.importance || 1);
     it.weight *= Math.exp(-lambda);
   }
-  // 2) выпадение ниже пола
+  // 2) выпадение ниже пола — кроме констант (их держим всегда).
   const floor = Math.max(s.dropThreshold ?? 0, DROP_FLOOR);
-  const kept = buf.filter((it) => it.weight > floor);
+  const kept = buf.filter((it) => isConstant(it) || it.weight > floor);
   buf.length = 0; buf.push(...kept);
 
   // 3) асимптотическое обогащение: упомянуто в свежих соо → тянем к потолку
@@ -120,8 +130,13 @@ function enforceCap(buf) {
   const s = getSettings().thoughtBuffer;
   if (!s.limitEnabled) return;
   if (buf.length <= s.maxItems) return;
-  buf.sort((a, b) => (b.weight - a.weight) || (b.lastSeen - a.lastSeen));
-  buf.length = s.maxItems;
+  // Константы держим ВСЕГДА (пин-ярус); лимитом режем только обычные пункты.
+  const byWeight = (a, b) => (b.weight - a.weight) || (b.lastSeen - a.lastSeen);
+  const consts = buf.filter(isConstant).sort(byWeight);
+  const rest = buf.filter((it) => !isConstant(it)).sort(byWeight);
+  const room = Math.max(0, s.maxItems - consts.length);
+  const next = [...consts, ...rest.slice(0, room)];
+  buf.length = 0; buf.push(...next);
 }
 
 export async function removeItem(id) {

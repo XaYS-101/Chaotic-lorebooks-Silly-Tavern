@@ -42,6 +42,17 @@ function pinnedIndices() {
   return set;
 }
 
+/**
+ * Соо принадлежит ST (системное / коммент / авторская заметка), а не нам?
+ * ST метит такие is_system=true (+ класс .smallSysMes в DOM). Мы их НЕ трогаем:
+ * иначе сняв is_system мы сорвём их стилизацию (баг «у заметок пропадает css»).
+ * Наши собственные скрытые соо тоже is_system=true, но они в tracked — их различаем по set.
+ */
+function isForeignSystem(i, tracked) {
+  if (tracked.has(i)) return false;        // это МЫ его спрятали — наше
+  return !!chat()[i]?.is_system;           // is_system не наш → ST-овское (заметка/коммент/сис.)
+}
+
 /** Низкоуровнево: пометить соо скрытым/видимым (реплика hideChatMessageRange). */
 function setHidden(i, hide) {
   const m = chat()[i];
@@ -66,30 +77,36 @@ export async function maintain() {
   }
 
   const len = chat().length;
-  const window = Math.max(2, s.windowSize ?? 30);
+  const window = Math.max(2, s.windowSize ?? 12);
   const keepTail = Math.max(0, s.keepTailFromSlab ?? 2);
+  const afterSummary = s.afterSummary !== false;   // дефолт: прятать только суммаризованное
+  const scope = s.scope === 'newest' ? 'newest' : 'slab';
   const wm = watermark();
-  const visibleFloor = len - window;         // индексы ≥ floor — живое окно
-  if (visibleFloor <= 0) { if (tracked.size) await revealAll(); return; }
+  const visibleFloor = len - window;         // индексы ≥ floor — живое окно (ВСЕГДА видимы)
 
   const pinned = pinnedIndices();
 
-  // Кандидаты-арки: запечатанные, целиком за окном и захваченные (end ≤ watermark).
-  const arcs = getSealedArcs()
-    .filter((a) => a.end != null && a.end < visibleFloor && a.end <= wm)
+  // Кандидаты-арки: запечатанные, захваченные (end ≤ watermark) и — если afterSummary —
+  // уже суммаризованные (есть summaryGist), чтобы скрытие не теряло контекст без замены.
+  let arcs = getSealedArcs()
+    .filter((a) => a.end != null && a.end <= wm)
+    .filter((a) => !afterSummary || (a.summaryGist && String(a.summaryGist).trim()))
     .sort((a, b) => a.start - b.start);
   if (!arcs.length) { if (tracked.size) await revealAll(); return; }
 
   const newestEnd = Math.max(...arcs.map((a) => a.end));
+  // scope 'newest' → прячем только новейший суммаризованный пласт; 'slab' → все кандидаты.
+  if (scope === 'newest') arcs = arcs.filter((a) => a.end === newestEnd);
 
-  // Целевой набор скрытых индексов.
+  // Целевой набор скрытых индексов: всё внутри арок, но НЕ в живом окне.
   const target = new Set();
   for (const a of arcs) {
     // из новейшего пласта оставляем keepTail соо видимыми (мост к сырому окну).
     const hideEnd = a.end === newestEnd ? a.end - keepTail : a.end;
     for (let i = a.start; i <= hideEnd; i++) {
-      if (i >= visibleFloor) continue;       // в окне — не трогаем
+      if (i >= visibleFloor) continue;       // в живом окне — не трогаем
       if (pinned.has(i)) continue;           // pinned — иммунен
+      if (isForeignSystem(i, tracked)) continue; // авторская заметка / ST-системное — не трогаем
       target.add(i);
     }
   }
@@ -113,6 +130,7 @@ export async function hideArcSlab(arcId) {
   let changed = false;
   for (let i = arc.start; i <= arc.end; i++) {
     if (pinned.has(i)) continue;
+    if (isForeignSystem(i, tracked)) continue;   // авторская заметка / ST-системное — не трогаем
     if (setHidden(i, true)) { tracked.add(i); changed = true; }
   }
   if (changed) { saveHidden(tracked); await persistMeta(); await persistChat(); }

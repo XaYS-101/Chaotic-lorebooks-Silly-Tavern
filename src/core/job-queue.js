@@ -90,9 +90,10 @@ export function start() {
 
 async function drain() {
   const s = getSettings();
-  // Стоим, только если ВЫКЛ автоном И НЕ активен backfill — иначе backfill не пройдёт
-  // в Balanced/Lite.
-  if (s.autonomous?.enabled === false && !isBackfillActive()) return;
+  // Дренируем во всех режимах, кроме lite (там фоновой памяти нет вовсе): balanced и
+  // autonomous гонят ДЕШЁВЫЕ джобы (саммари арки, мёрж графа). Дорогие (аудит/deep-extract)
+  // ставятся в очередь только в autonomous — на своих enqueue-сайтах. Backfill дренит даже в lite.
+  if (s.mode === 'lite' && !isBackfillActive()) return;
   const concurrency = Math.max(1, Math.min(2, s.autonomous?.concurrency ?? 1));
 
   // Простой цикл: берём pending-джобы, пока есть слоты и бюджет.

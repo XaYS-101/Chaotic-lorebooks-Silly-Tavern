@@ -16,8 +16,11 @@ import {
 import { getSettings, saveSettings } from '../core/settings.js';
 import { getBoundBookName, ensureBook } from '../lorebook/lorebook-service.js';
 import { isChatEnabled, toggleChatEnabled } from '../core/chat-state.js';
-import { getSealedArcs, sealReady } from '../memory/arc-segmenter.js';
+import { getSealedArcs, sealReady, getArc } from '../memory/arc-segmenter.js';
 import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from '../memory/auto-hide.js';
+// afterSeal живёт в оркестраторе (index.js): активность+снапшот+саммари+скрытие одним местом.
+// Живой биндинг, зовётся только в обработчике клика → циклический импорт безопасен.
+import { afterSeal } from '../../index.js';
 import {
   getGists, setActive as setRecActive, bulkSetArc, removeGist,
 } from '../memory/recollection.js';
@@ -175,7 +178,8 @@ function renderRecollectionsSection() {
   if (!gists.length) {
     inner = `<p class="cl-empty">${t('ui.rec.empty')}</p>`;
   } else {
-    inner = gists.slice().sort((a, b) => (a.arcId ?? 0) - (b.arcId ?? 0)).map((g) => `
+    const gistStart = (g) => getArc(g.arcId)?.start ?? g.arcId ?? 0; // хронологический порядок (по началу арки)
+    inner = gists.slice().sort((a, b) => gistStart(a) - gistStart(b)).map((g) => `
       <div class="cl-gist ${g.active === false ? 'cl-disabled' : ''}" data-id="${g.id}">
         <div class="cl-gist-text">${escapeHtml(g.gist)}</div>
         ${(g.voiceQuotes || []).map((q) => `<div class="cl-gist-quote">» ${escapeHtml(q)}</div>`).join('')}
@@ -218,7 +222,7 @@ function renderArcsSection() {
   if (!arcs.length) {
     inner = controls + `<p class="cl-empty">${t('ui.arcs.empty')}</p>`;
   } else {
-    inner = controls + arcs.slice().sort((a, b) => a.id - b.id).map((a) => `
+    inner = controls + arcs.slice().sort((a, b) => (a.start - b.start) || (a.id - b.id)).map((a) => `
       <div class="cl-arc" data-arc="${a.id}">
         <span class="cl-arc-title">${t('ui.arc', { id: a.id })} ${sigBadge(a)}<span class="cl-weight">#${a.start}–${a.end}</span>
           ${a.dirty ? `<span class="cl-dirty">${t('ui.dirty')}</span>` : ''}</span>
@@ -509,7 +513,7 @@ function wireMemory(body) {
   // арки: запечатать сейчас / вернуть скрытое / забыть арку
   body.querySelector('#cl-arc-seal')?.addEventListener('click', async () => {
     const sealed = await sealReady();
-    if (sealed) { await autoHideMaintain(); globalThis.toastr?.success?.(t('toast.arcSealed', { id: sealed.id })); }
+    if (sealed) { await afterSeal(sealed); globalThis.toastr?.success?.(t('toast.arcSealed', { id: sealed.id })); }
     else globalThis.toastr?.info?.(t('toast.nothingToSeal'));
     await switchTab('memory');
   });

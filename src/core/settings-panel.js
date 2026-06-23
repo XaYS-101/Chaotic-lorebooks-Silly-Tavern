@@ -28,6 +28,8 @@ const BINDINGS = [
   // Фаза A — арки, авто-скрытие, бэкапы
   ['cl-autohide-enabled', 'autoHide.enabled', 'bool'],
   ['cl-autohide-window', 'autoHide.windowSize', 'int'],
+  ['cl-autohide-aftersummary', 'autoHide.afterSummary', 'bool'],
+  ['cl-autohide-scope', 'autoHide.scope', 'str'],
   ['cl-autohide-keeptail', 'autoHide.keepTailFromSlab', 'int'],
   ['cl-arc-cap', 'arc.capMessages', 'int'],
   ['cl-arc-markers', 'arc.useMarkers', 'bool'],

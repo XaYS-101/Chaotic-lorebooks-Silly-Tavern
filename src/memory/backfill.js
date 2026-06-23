@@ -13,11 +13,21 @@
 // который job-queue.drain и arc-summary тоже чтят (см. §3 в плане).
 
 import { getSettings } from '../core/settings.js';
-import { getBaseline, uncoveredPrefixLen, backfillArcs, getSealedArcs } from './arc-segmenter.js';
+import { getBaseline, uncoveredPrefixLen, backfillArcs, getSealedArcs, getArc } from './arc-segmenter.js';
 import { enqueue, setBackfillActive, onQueueDrained } from '../core/job-queue.js';
 import { maintain as autoHideMaintain } from './auto-hide.js';
 import { getActive as getActiveRecollections } from './recollection.js';
+import { log as logActivity } from './activity-log.js';
 import { t } from '../core/i18n.js';
+
+/** Записать в активность факт нарезки backfill-арки (для таймлайна). */
+function logBackfillSeals(ids) {
+  for (const id of ids) {
+    const a = getArc(id);
+    logActivity({ kind: 'arc-seal', arcId: id, detail: a ? `backfill #${a.start}–${a.end}` : 'backfill' })
+      .catch(() => {});
+  }
+}
 
 const PROMPT_SHOWN_KEY = 'chaoticLorebooks_backfillPromptShown';
 
@@ -72,6 +82,7 @@ export async function runBackfill(mode = 'full') {
     globalThis.toastr?.info?.(t('toast.backfillNone'));
     return false;
   }
+  logBackfillSeals(ids);            // таймлайн: отметить нарезанные пласты
   if (mode === 'light') {
     await autoHideMaintain();
     globalThis.toastr?.success?.(t('toast.backfillLight', { n: ids.length }));

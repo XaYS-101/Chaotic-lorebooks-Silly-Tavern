@@ -99,9 +99,11 @@ const DEFAULTS = Object.freeze({
   // Авто-скрытие старых соо пластами по арке (держит активное окно маленьким).
   autoHide: {
     enabled: true,
-    windowSize: 30,        // сколько свежих соо всегда видимы
+    windowSize: 12,        // «живое окно»: сколько свежих соо ВСЕГДА видимы (default-window)
     bySlab: true,          // скрывать целой аркой, не по одному
     keepTailFromSlab: 2,   // мост: оставить N соо новейшего скрываемого пласта
+    afterSummary: true,    // прятать арку ТОЛЬКО когда у неё есть summaryGist (безопасное скрытие)
+    scope: 'slab',         // 'slab' = прятать весь суммаризованный пласт · 'newest' = только новейший
   },
 
   // Нарезка арок.
@@ -280,7 +282,9 @@ export function applyMode(mode) {
   } else if (mode === 'balanced') {
     s.retrievalMode = 'agent';
     s.agentEveryNTurns = 3;
-    s.autonomous.enabled = false;         // арки/скрытие идут, но без платных фон-джоб
+    s.autonomous.enabled = false;         // ДЕШЁВЫЕ фон-джобы (саммари арки + мёрж графа) идут,
+                                          // авто-скрытие после саммари — тоже; ДОРОГИЕ (аудит/
+                                          // deep-extract) остаются только в autonomous.
     s.contextBudget.enabled = true;       // Фаза D: потолок — чистый код, без LLM → можно
   } else if (mode === 'autonomous') {
     s.retrievalMode = 'agent';

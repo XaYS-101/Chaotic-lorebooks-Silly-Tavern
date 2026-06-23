@@ -189,7 +189,14 @@
             <summary data-cl-i18n="set.arcs">Arcs &amp; auto-hide</summary>
             <small data-cl-i18n="set.arcs.note">Old messages are sealed into arcs and hidden in slabs to keep the active window small.</small>
             <label class="checkbox_label"><input type="checkbox" id="cl-autohide-enabled"><span data-cl-i18n="set.arcs.autohide">Auto-hide old messages</span></label>
-            <label><span data-cl-i18n="set.arcs.window">Visible window (messages)</span> <input type="number" id="cl-autohide-window" min="2" max="200"></label>
+            <label><span data-cl-i18n="set.arcs.window">Live window — messages always kept visible</span> <input type="number" id="cl-autohide-window" min="2" max="200"></label>
+            <label class="checkbox_label"><input type="checkbox" id="cl-autohide-aftersummary"><span data-cl-i18n="set.arcs.afterSummary">Only hide an arc after it is summarized (safe)</span></label>
+            <label><span data-cl-i18n="set.arcs.scope">Hide scope</span>
+              <select id="cl-autohide-scope">
+                <option value="slab" data-cl-i18n="set.arcs.scope.slab">All summarized arcs past the window</option>
+                <option value="newest" data-cl-i18n="set.arcs.scope.newest">Only the most recent summarized arc</option>
+              </select>
+            </label>
             <label><span data-cl-i18n="set.arcs.keepTail">Keep bridge from newest hidden slab</span> <input type="number" id="cl-autohide-keeptail" min="0" max="10"></label>
             <label><span data-cl-i18n="set.arcs.cap">Arc length cap (messages)</span> <input type="number" id="cl-arc-cap" min="5" max="200"></label>
             <label class="checkbox_label"><input type="checkbox" id="cl-arc-markers"><span data-cl-i18n="set.arcs.markers">Use scene-break markers (/cl-arc, ***)</span></label>

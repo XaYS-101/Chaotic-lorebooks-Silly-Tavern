@@ -52,10 +52,16 @@ export async function retrieveWithReason() {
 /** Buffer agent: предложить 1-2 пункта в буфер мыслей. Без возврата — пишет сам. */
 export async function updateBufferFromScene() {
   const system = 'Track the character\'s evolving working memory for a roleplay. '
-    + 'From the recent scene, output 1-2 SHORT items that should persist briefly '
-    + '(current goal, active emotional thread, or a fact just learned). '
-    + 'For each give: text, kind (goal|trait|lore|thread), subject (main entity it is about), '
-    + 'importance (1=minor, 2=normal, 3=core/long-term). '
+    + 'From the recent scene, output 1-2 SHORT items worth keeping. '
+    + 'kind: "goal" = an objective the character is pursuing (fades once met or abandoned); '
+    + '"trait" = a feeling or character-state about someone (e.g. love, fear, distrust); '
+    + '"lore" = a durable fact just learned; "thread" = a fleeting conversational beat. '
+    + 'subject = main entity it is about. '
+    + 'importance: 1 = fleeting (drops soon), 2 = normal, '
+    + '3 = ENDURING CONSTANT — only for trait/lore that should persist long-term, like a core '
+    + 'lasting feeling, a defining character trait, or a permanent fact (these never decay). '
+    + 'Use 3 for steady feelings/character constants; use "thread" + 1 for one-off beats; '
+    + 'give goals importance by how long-term they are (a quick errand is 1, a driving ambition 2-3). '
     + 'Reply ONLY as JSON: {"items":[{"text":"...","kind":"...","subject":"...","importance":2}]}.';
   const prompt = `Recent scene:\n${recentChatText()}`;
 

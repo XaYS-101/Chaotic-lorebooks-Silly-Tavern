@@ -52,10 +52,11 @@ const SCHEMA = {
 export async function summarizeArc(arcId) {
   const s = getSettings();
   if (s.extraction?.enabled === false) return false;
-  // На время разового backfill'а (поздно-включённый чат) пускаем извлечение и в
-  // Balanced/Lite — флаг живёт в chatMetadata, очередь его же чекает.
+  // Саммари арки — дешёвая фон-джоба: идёт во всех режимах, кроме lite (там память
+  // не строится вовсе). Разовый backfill (поздно-включённый чат) пускаем даже в lite —
+  // флаг живёт в chatMetadata, очередь его же чекает.
   const backfillActive = !!(SillyTavern.getContext().chatMetadata?.chaoticLorebooks_backfillActive);
-  if (!s.autonomous?.enabled && !backfillActive) return false;
+  if (s.mode === 'lite' && !backfillActive) return false;
 
   const arc = getArc(arcId);
   if (!arc || !arc.sealed) return false;

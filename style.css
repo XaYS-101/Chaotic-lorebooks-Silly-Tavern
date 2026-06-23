@@ -193,13 +193,17 @@
 
 /* Плавающая кнопка «сохранить цитату» у выделения (поверх дровера, тач-таргет) */
 .cl-quote-fab {
-  position: fixed; z-index: 10001;
-  padding: 8px 12px; min-height: 40px; cursor: pointer;
-  font-size: 0.85em; white-space: nowrap;
+  position: fixed; z-index: 2147483000;
+  padding: 10px 14px; min-height: 44px; min-width: 44px; cursor: pointer;
+  font-size: 0.9em; white-space: nowrap;
   background: var(--SmartThemeQuoteColor, #8ab4f8);
   color: var(--SmartThemeBlurTintColor, #1b1b1b);
   border: none; border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  pointer-events: auto;
+  touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Backfill-баннер: «N соо ждут обработки → Процесс». Лежит у самой шапки дровера. */

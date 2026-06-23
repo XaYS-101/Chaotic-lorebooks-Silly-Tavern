@@ -119,15 +119,30 @@ async function onSettledTurn() {
   if (sealed) {
     resetMemoryCache();                 // §4b: новая арка → кэш ядра устарел, пересоберём на сдвиге
     logActivity({ kind: 'arc-seal', arcId: sealed.id, detail: `#${sealed.start}–${sealed.end}` }).catch(warn);
-    await autoHideMaintain();           // спрятать дозревший пласт
+    await autoHideMaintain();           // спрятать дозревший пласт (если уже суммаризован)
     if (s.backup?.enabled) backupSnapshot('arc-seal').catch(warn);
-    // Фаза B: извлечение (саммари+граф) — фоновой джобой, только в autonomous.
-    if (s.autonomous?.enabled) enqueue('arc-extract', { arcId: sealed.id }).catch(warn);
+    // Фаза B: извлечение (саммари+граф) — дешёвой фон-джобой во всех режимах, кроме lite.
+    if (s.mode !== 'lite') enqueue('arc-extract', { arcId: sealed.id }).catch(warn);
   }
   // Фаза D: раз в ~N устоявшихся ходов — дорогой кросс-арочный аудит (только autonomous).
   if (s.autonomous?.enabled && s.drift?.auditEnabled !== false && noteSettledForAudit()) {
     enqueue('audit-expensive', {}).catch(warn);
   }
+}
+
+/**
+ * Побочки запечатывания арки для РУЧНЫХ путей (/cl-arc, кнопка «Запечатать сейчас»):
+ * запись в активность + снапшот + авто-скрытие + дешёвая джоба саммари. Зеркалит
+ * onSettledTurn, чтобы таймлайн/память не зависели от того, авто это или вручную.
+ */
+export async function afterSeal(sealed) {
+  if (!sealed) return;
+  const s = getSettings();
+  resetMemoryCache();
+  logActivity({ kind: 'arc-seal', arcId: sealed.id, detail: `#${sealed.start}–${sealed.end}` }).catch(warn);
+  if (s.backup?.enabled) backupSnapshot('arc-seal').catch(warn);
+  if (s.mode !== 'lite') enqueue('arc-extract', { arcId: sealed.id }).catch(warn);
+  await autoHideMaintain().catch(warn);
 }
 
 /** Правка старого соо: гейт опечаток в арк-сегментере; существенная → откат+переизвлечение. */
@@ -145,7 +160,11 @@ async function onEditedTurn(idx) {
 /** Обработчики фоновых джоб (Фаза B — извлечение/граф, 🟡; вне крит. пути). */
 function registerJobHandlers() {
   // Запечатанная арка → дешёвое саммари + voiceQuotes + триплеты.
-  registerHandler('arc-extract', async (payload) => { await summarizeArc(payload.arcId); });
+  // После саммари — авто-скрытие: теперь у арки есть gist, прятать пласт безопасно.
+  registerHandler('arc-extract', async (payload) => {
+    const ok = await summarizeArc(payload.arcId);
+    if (ok) await autoHideMaintain().catch(warn);
+  });
   // Фаза C: allow-list (анти-галлюцинация) + дрейф-флаг → очищенный graph-merge.
   registerHandler('deep-extract', async (payload) => { await extractArc(payload); });
   // Триплеты → гибрид-мёрж в граф (provenance по арке).
@@ -181,6 +200,9 @@ function addWandButton(tries = 0) {
 function injectFavoriteStars() {
   document.querySelectorAll('#chat .mes').forEach((mesEl) => {
     if (mesEl.querySelector('.cl-star')) return;
+    // Не звёздим системные/комменты/авторские заметки ST (класс .smallSysMes или
+    // is_system="true") — звезда ломает их вёрстку/стилизацию (баг «пропадает css»).
+    if (mesEl.classList.contains('smallSysMes') || mesEl.getAttribute('is_system') === 'true') return;
     const idx = Number(mesEl.getAttribute('mesid'));
     if (Number.isNaN(idx)) return;
     const star = document.createElement('div');
@@ -259,17 +281,28 @@ function setupQuoteFab() {
     if (!s || s.isCollapsed) hide();
   }, true);
 
-  // preventDefault на старте тача/мыши — не сбрасываем выделение до click.
-  fab.addEventListener('mousedown', (e) => e.preventDefault());
-  fab.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
-  fab.addEventListener('click', async () => {
-    if (!cached) return;
+  // Сохраняем на pointerdown — на мобиле тап по кнопке часто не доходит до click
+  // (touchstart preventDefault душит синтез click в Chrome/Safari), плюс click
+  // приходит после того, как палец/мышь уже сняли выделение.
+  let firing = false;
+  const doSave = async (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (firing || !cached) return;
+    firing = true;
     const { idx, text } = cached;
     hide();
-    await addQuote(idx, text);
-    globalThis.toastr?.success?.(t('toast.quoteSaved'));
-    window.getSelection?.()?.removeAllRanges?.();
-  });
+    try {
+      await addQuote(idx, text);
+      globalThis.toastr?.success?.(t('toast.quoteSaved'));
+      window.getSelection?.()?.removeAllRanges?.();
+    } finally {
+      setTimeout(() => { firing = false; }, 300);
+    }
+  };
+  fab.addEventListener('pointerdown', doSave);
+  // Фолбэк для браузеров без Pointer Events.
+  fab.addEventListener('click', doSave);
 }
 
 // --- Слэш-команды ---
@@ -292,7 +325,7 @@ function registerSlashCommands(ctx) {
     name: `${p}-arc`,
     callback: async () => {
       const sealed = await sealReady();
-      if (sealed) { await autoHideMaintain(); globalThis.toastr?.success?.(t('toast.arcSealed', { id: sealed.id })); }
+      if (sealed) { await afterSeal(sealed); globalThis.toastr?.success?.(t('toast.arcSealed', { id: sealed.id })); }
       else globalThis.toastr?.info?.(t('toast.nothingToSeal'));
       return '';
     },
