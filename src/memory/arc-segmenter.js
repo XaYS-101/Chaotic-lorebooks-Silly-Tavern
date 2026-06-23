@@ -9,6 +9,7 @@
 
 import { getSettings } from '../core/settings.js';
 import { contentTokens, jaccard } from './text-relevance.js';
+import { trace } from '../core/debug-trace.js';
 
 const ARCS_KEY = 'chaoticLorebooks_arcs';
 const WM_KEY = 'chaoticLorebooks_watermark';
@@ -103,13 +104,13 @@ export async function onMessage() {
 
   if (!capReached && !marker) { await persist(); return null; }
 
-  const sealed = await sealReady();
+  const sealed = await sealReady(capReached ? 'cap' : 'marker');
   await persist();
   return sealed;
 }
 
 /** Запечатать открытую арку до watermark. Возвращает арку или null. */
-export async function sealReady() {
+export async function sealReady(reason = 'manual') {
   const wm = getWatermark();
   const open = getOpenArc();
   if (open.start > wm) return null;
@@ -117,6 +118,7 @@ export async function sealReady() {
   open.end = wm;
   open.sealed = true;
   open.tokensHash = tokHash(slabText(open.start, open.end));
+  trace('arc.seal', { arc: open.id, start: open.start, end: open.end, len: open.end - open.start + 1, reason });
 
   // следующая открытая арка начинается сразу после.
   const a = arcs();

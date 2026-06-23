@@ -5,6 +5,7 @@
 
 import { getSettings } from '../core/settings.js';
 import { contentTokens, stem } from './text-relevance.js';
+import { trace } from '../core/debug-trace.js';
 
 const META_KEY = 'chaoticLorebooks_buffer';
 
@@ -64,6 +65,7 @@ export async function upsertItem({ text, kind = 'thread', subject, importance, r
     it.weight = ceilingOf(it);
     buf.push(it);
   }
+  trace('buffer.upsert', { kind, subject: subj, text: String(text).slice(0, 80), hit: !!target });
   enforceCap(buf);
   await persist();
 }

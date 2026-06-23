@@ -5,6 +5,7 @@
 import { getSettings, saveSettings, applyMode, MODULE_NAME } from './settings.js';
 import { t, localize } from './i18n.js';
 import { deepPurgeAllChats, purgeCurrentChat, armBackstop } from './purge.js';
+import { downloadDiagnostics } from './debug-trace.js';
 
 // id инпута → путь в настройках + тип. Только РЕАЛЬНЫЕ v0-настройки.
 const BINDINGS = [
@@ -68,6 +69,8 @@ const BINDINGS = [
   ['cl-global-enabled', 'globalReconciler.enabled', 'bool'],
   ['cl-global-ask', 'globalReconciler.askOnDetected', 'bool'],
   ['cl-global-action', 'globalReconciler.defaultAction', 'str'],
+  // Диагностика (ветка testing)
+  ['cl-debug-enabled', 'debug.enabled', 'bool'],
 ];
 
 // Подсказки режима — через i18n (ключи set.hint.*), чтобы EN/RU совпадали.
@@ -117,6 +120,7 @@ export async function renderSettingsPanel() {
   wireApiManager();          // кастомные эндпоинты (New/Delete/поля)
   wireSourceSwitch();        // ST-профиль ⇄ кастомный эндпоинт (показ блоков)
   wireDangerZone();          // 🗑 Clear all data
+  wireDiagnostics();         // ⬇ Download diagnostics
 
   // Смена языка интерфейса → перелокализовать панель «вживую» (без перезагрузки).
   // Значение уже сохранено generic-биндингом выше; getLang сразу видит новое.
@@ -369,6 +373,15 @@ function wireDangerZone() {
     if (res !== affirmative && res !== true) return;
     const scope = wrap.querySelector('input[name="cl-clear-scope"]:checked')?.value || 'chat';
     await clearAllData(scope);
+  });
+}
+
+// --- Диагностика: выгрузка снимка состояния в JSON ------------------------
+function wireDiagnostics() {
+  document.getElementById('cl-diag-download')?.addEventListener('click', () => {
+    const ok = downloadDiagnostics();
+    if (ok) globalThis.toastr?.success?.(t('toast.diagSaved'));
+    else globalThis.toastr?.error?.(t('toast.diagFailed'));
   });
 }
 

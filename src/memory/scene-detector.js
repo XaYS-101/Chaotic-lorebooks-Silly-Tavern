@@ -4,6 +4,7 @@
 
 import { contentTokens, jaccard } from './text-relevance.js';
 import { getSettings } from '../core/settings.js';
+import { trace } from '../core/debug-trace.js';
 
 let turn = 0;
 let lastWakeTurn = 0;
@@ -39,6 +40,7 @@ export function evaluate() {
 
   const wake = shift || starved;
   if (wake) lastWakeTurn = turn;
+  trace('scene', { turn, wake, shift, starved, sim: Number(sim.toFixed(3)), newWordRatio: Number(newWordRatio.toFixed(3)) });
   return { wake, shift, sim, score: 1 - sim, newWordRatio };
 }
 

@@ -210,6 +210,13 @@
             <label><span data-cl-i18n="set.backup.keep">Snapshots to keep</span> <input type="number" id="cl-backup-keep" min="1" max="50"></label>
           </details>
 
+          <details class="cl-sub">
+            <summary data-cl-i18n="set.debug.title">Diagnostics</summary>
+            <label class="checkbox_label"><input type="checkbox" id="cl-debug-enabled"><span data-cl-i18n="set.debug.enable">Record a decision trace</span></label>
+            <p class="cl-hint" data-cl-i18n="set.debug.note">Logs arc seals, scene shifts, agent requests and buffer writes in memory. No effect on chat or memory behaviour. Download bundles current settings (API keys hidden), arcs, buffer, activity log and the trace.</p>
+            <button type="button" id="cl-diag-download" class="menu_button" data-cl-i18n="set.debug.download">⬇ Download diagnostics</button>
+          </details>
+
           <details class="cl-sub cl-danger">
             <summary data-cl-i18n="set.danger">⚠️ Danger zone</summary>
             <small data-cl-i18n="set.danger.note">Reset all Chaotic Lorebooks settings to defaults and erase this chat's memory metadata (buffer, favorites, arcs, recollections, drift flags, backups, activity, queue). Your lorebook entries and the chat itself are NOT touched.</small>

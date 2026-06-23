@@ -12,6 +12,7 @@
 import { agentRequest, parseJsonLoose } from './llm-service.js';
 import { renderToc, getBranchContent } from '../lorebook/tree-store.js';
 import { upsertItem } from '../memory/thought-buffer.js';
+import { trace } from '../core/debug-trace.js';
 
 function recentChatText(n = 6) {
   const chat = SillyTavern.getContext().chat ?? [];
@@ -31,8 +32,10 @@ export async function scout() {
   const prompt = `Memory map:\n${toc}\n\nRecent scene:\n${recentChatText()}\n\n`
     + 'Which branches matter right now?';
 
+  trace('agent.req', { kind: 'scout' });
   const raw = await agentRequest({ system, prompt });
   const parsed = parseJsonLoose(raw);
+  trace('agent.resp', { kind: 'scout', ok: !!(parsed && Array.isArray(parsed.branches)) });
   if (!parsed || !Array.isArray(parsed.branches)) return null;
   return parsed;
 }
@@ -56,8 +59,10 @@ export async function updateBufferFromScene() {
     + 'Reply ONLY as JSON: {"items":[{"text":"...","kind":"...","subject":"...","importance":2}]}.';
   const prompt = `Recent scene:\n${recentChatText()}`;
 
+  trace('agent.req', { kind: 'buffer' });
   const raw = await agentRequest({ system, prompt });
   const parsed = parseJsonLoose(raw);
+  trace('agent.resp', { kind: 'buffer', ok: !!(parsed && Array.isArray(parsed.items)), items: parsed?.items?.length ?? 0 });
   if (!parsed || !Array.isArray(parsed.items)) return;
   for (const it of parsed.items.slice(0, 2)) {
     if (it?.text) {
