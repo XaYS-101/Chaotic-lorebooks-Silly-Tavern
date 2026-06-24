@@ -172,7 +172,7 @@
           </details>
 
           <details class="cl-sub">
-            <summary data-cl-i18n="set.pipe">Two-stage pipeline (§4b)</summary>
+            <summary data-cl-i18n="set.pipe">Two-stage pipeline</summary>
             <small data-cl-i18n="set.pipe.note">Stage-1 memory engine: the cheap agent assembles the memory core (recollections + graph + retrieval) and hands the writer (your normal model) only a distillate. The core is cached per scene — on a static scene it is reused and only the cheap buffer/favorites refresh, saving work. Off → injection behaves exactly as before (fresh build every turn). Enabled automatically in Autonomous.</small>
             <label class="checkbox_label"><input type="checkbox" id="cl-pipeline-enabled"><span data-cl-i18n="set.pipe.engine">Scene-gated memory engine + core cache</span></label>
             <label class="checkbox_label"><input type="checkbox" id="cl-pipeline-compose"><span data-cl-i18n="set.pipe.compose">Compose/compress core with the cheap AI (one extra LLM call on scene shifts)</span></label>

@@ -39,7 +39,7 @@ export async function agentRequest({ system, prompt, jsonSchema, retries = 1 }) 
             { role: 'system', content: sys },
             { role: 'user', content: prompt },
           ],
-          1024,
+          4096,
         );
         result = typeof res === 'string' ? res : (res?.content ?? res?.text ?? null);
       } else {
@@ -86,7 +86,7 @@ async function customEndpointRequest(p, system, prompt, jsonSchema, schemaHint) 
         { role: 'system', content: sys },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 1024,
+      max_tokens: 4096,
     };
     // Best-effort structured output for OpenAI-compatible endpoints.
     // json_object is more widely supported than json_schema across providers.
