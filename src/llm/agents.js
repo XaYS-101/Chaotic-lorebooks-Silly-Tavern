@@ -1,13 +1,13 @@
-// agents.js — агентный слой. Заменяет нативный tool-calling двумя фоновыми
-// проходами через llm-service (дешёвая модель). Каждый проход НЕОБЯЗАТЕЛЕН:
-// при ошибке/выключенном LLM откатываемся на 🟢-логику, чат не страдает.
+// agents.js — agent layer. Replaces native tool-calling with two background
+// passes via llm-service (cheap model). Each pass is OPTIONAL: on error or with
+// LLM off we fall back to 🟢 logic, chat is unaffected.
 //
-// 1) scout — читает сцену + оглавление дерева, решает какие ветки и насколько
-//    глубоко поднять, и ОБЪЯСНЯЕТ почему (это объяснение мы вкладываем вместе
-//    с данными — чтобы сохранить тезис «активного ретрива»).
-// 2) bufferAgent — обновляет буфер мыслей (1-2 строки) по последним сообщениям.
+// 1) scout — reads the scene + tree ToC, decides which branches to surface and
+//    how deep, and EXPLAINS why (the explanation is injected with the data to
+//    preserve the "active retrieval" framing).
+// 2) bufferAgent — updates the thought buffer (1-2 lines) from recent messages.
 //
-// Метки: 🟡 (нужен LLM). Деградация встроена.
+// Markers: 🟡 (needs LLM). Degradation built in.
 
 import { agentRequest, parseJsonLoose } from './llm-service.js';
 import { renderToc, getBranchContent } from '../lorebook/tree-store.js';
@@ -40,7 +40,7 @@ function recentChatText(n = 6) {
 }
 
 /**
- * Scout: вернуть { branches:[], depth:int, reason:string } или null (фолбэк).
+ * Scout: return { branches:[], depth:int, reason:string } or null (fallback).
  */
 export async function scout() {
   const toc = await renderToc();
@@ -60,7 +60,7 @@ export async function scout() {
   return parsed;
 }
 
-/** Собрать инъекцию ретрива: данные веток + рассуждение scout (или null). */
+/** Build retrieval injection: branch data + scout reasoning (or null). */
 export async function retrieveWithReason() {
   const plan = await scout();
   if (!plan || !plan.branches.length) return null;
@@ -81,7 +81,7 @@ const SCOUT_SCHEMA = {
   required: ['branches', 'depth', 'reason'],
 };
 
-/** Buffer agent: предложить 1-2 пункта в буфер мыслей. Без возврата — пишет сам. */
+/** Buffer agent: propose 1-2 thought-buffer items. No return — writes directly. */
 export async function updateBufferFromScene() {
   const ctx = SillyTavern.getContext();
   const chatLen = (ctx.chat ?? []).length;

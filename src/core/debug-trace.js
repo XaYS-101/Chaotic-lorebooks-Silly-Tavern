@@ -1,6 +1,6 @@
-// debug-trace.js — кольцевой буфер диагностических событий + экспорт снимка
-// состояния в JSON-файл. Всё локально, без LLM и без записи в книгу. Когда
-// debug.enabled выключен, trace() — no-op; на поведение памяти не влияет.
+// debug-trace.js — ring buffer of diagnostic events + state snapshot export to a
+// JSON file. All local, no LLM, no lorebook writes. When debug.enabled is off,
+// trace() is a no-op and memory behaviour is unaffected.
 
 import { getSettings } from './settings.js';
 import { getLog } from '../memory/activity-log.js';
@@ -9,7 +9,7 @@ const ARCS_KEY = 'chaoticLorebooks_arcs';
 const BUFFER_KEY = 'chaoticLorebooks_buffer';
 const WM_KEY = 'chaoticLorebooks_watermark';
 const SCENE_STATS_KEY = 'chaoticLorebooks_sceneStats';
-const HARD_CAP = 2000;            // backstop, чтобы буфер не рос без предела
+const HARD_CAP = 2000;            // backstop so the buffer can't grow unbounded
 
 let ring = [];
 
@@ -19,23 +19,23 @@ function cap() {
   return Math.max(50, Math.min(HARD_CAP, n));
 }
 
-/** Записать одно событие. No-op при выключенной отладке. Никогда не бросает. */
+/** Record one event. No-op when debug is off. Never throws. */
 export function trace(ev, data = {}) {
   try {
     if (!getSettings().debug?.enabled || !ev) return;
     ring.push({ t: Date.now(), ev: String(ev), ...data });
     const c = cap();
     if (ring.length > c) ring.splice(0, ring.length - c);
-  } catch { /* отладка не должна мешать работе */ }
+  } catch { /* debug must never disrupt normal operation */ }
 }
 
-/** Копия трейса (новые в конце). */
+/** Copy of the trace (newest last). */
 export function getTrace() { return ring.slice(); }
 
-/** Очистить трейс. */
+/** Clear the trace. */
 export function clearTrace() { ring = []; }
 
-// Глубокая копия настроек с замазкой ключей API.
+// Deep-copy settings with API keys redacted.
 function redactSettings(s) {
   let clone;
   try { clone = JSON.parse(JSON.stringify(s ?? {})); } catch { return {}; }
@@ -46,7 +46,7 @@ function redactSettings(s) {
   return clone;
 }
 
-/** Собрать снимок диагностики: настройки (с замазкой) + состояние чата + трейс. */
+/** Build a diagnostics snapshot: settings (redacted) + chat state + trace. */
 export function buildDiagnostics() {
   const c = ctx();
   const meta = c?.chatMetadata ?? {};
@@ -72,12 +72,12 @@ export function buildDiagnostics() {
   };
 }
 
-// Безопасное имя файла из id чата.
+// Safe file name from the chat id.
 function safeName(id) {
   return String(id || 'chat').replace(/[^\w.-]+/g, '_').slice(0, 60);
 }
 
-/** Скачать диагностику как JSON-файл (Blob + временная ссылка). */
+/** Download diagnostics as a JSON file (Blob + temporary link). */
 export function downloadDiagnostics() {
   try {
     const diag = buildDiagnostics();

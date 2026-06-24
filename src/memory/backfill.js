@@ -1,16 +1,16 @@
-// backfill.js — разовый «catch-up» для чатов, где расширение включили поздно.
+// backfill.js — one-time "catch-up" for chats where the extension was enabled late.
 //
-// Поведение: при первом контакте с чатом длиной > backfill.threshold seedBaseline
-// сажает chatMetadata.chaoticLorebooks_baseline = len и watermark = len-2 —
-// форвард-арки стартуют с baseline, исторический префикс [0..baseline-1] остаётся
-// неприкрытым (auto-hide его не трогает; никакой мега-арки и слепого скрытия истории).
+// Behavior: on first contact with a chat longer than backfill.threshold, seedBaseline
+// sets chatMetadata.chaoticLorebooks_baseline = len and watermark = len-2 — forward
+// arcs start from baseline, and the historical prefix [0..baseline-1] stays uncovered
+// (auto-hide leaves it alone; no mega-arc and no blind hiding of history).
 //
-// Затем юзер может «процессить» префикс одним из двух режимов:
-//   Full  — нарезать sealed-арки и прогнать дешевую ИИ (gist+цитаты+триплеты+энтри);
-//   Light — только нарезать + auto-hide; без LLM.
+// The user can then "process" the prefix in one of two modes:
+//   Full  — cut sealed arcs and run cheap AI (gist+quotes+triples+entries);
+//   Light — cut + auto-hide only; no LLM.
 //
-// Backfill совместим с Balanced/Lite через временный chatMetadata.backfillActive,
-// который job-queue.drain и arc-summary тоже чтят (см. §3 в плане).
+// Backfill works with Balanced/Lite via a temporary chatMetadata.backfillActive, which
+// job-queue.drain and arc-summary also honor (see §3 in the plan).
 
 import { getSettings } from '../core/settings.js';
 import { getBaseline, uncoveredPrefixLen, backfillArcs, getSealedArcs, getArc } from './arc-segmenter.js';
@@ -20,7 +20,7 @@ import { getActive as getActiveRecollections } from './recollection.js';
 import { log as logActivity } from './activity-log.js';
 import { t } from '../core/i18n.js';
 
-/** Записать в активность факт нарезки backfill-арки (для таймлайна). */
+/** Log the sealing of a backfill arc to activity (for the timeline). */
 function logBackfillSeals(ids) {
   for (const id of ids) {
     const a = getArc(id);
@@ -34,7 +34,7 @@ const PROMPT_SHOWN_KEY = 'chaoticLorebooks_backfillPromptShown';
 function ctx() { return SillyTavern.getContext(); }
 function chat() { return ctx().chat ?? []; }
 
-/** Есть ли уже какая-то «вперёд» память расширения (саммари арок / огрызки). */
+/** Does any forward extension memory already exist (arc summaries / gists)? */
 function hasExtensionMemory() {
   try {
     if (getSealedArcs().some((a) => a.summaryGist)) return true;
@@ -45,7 +45,7 @@ function hasExtensionMemory() {
   return false;
 }
 
-/** Доступен ли разовый backfill сейчас? Деривируется из стейта — без флага «отказался». */
+/** Is one-time backfill available now? Derived from state — no "declined" flag. */
 export function backfillAvailable() {
   const s = getSettings();
   const threshold = s.backfill?.threshold ?? 10;
@@ -56,7 +56,7 @@ export function backfillAvailable() {
   return true;
 }
 
-/** Сводка для UI/banner: сколько соо ждут, сколько арок и LLM-вызовов прикинуть. */
+/** Summary for UI/banner: how many messages wait, plus estimated arcs and LLM calls. */
 export function getBackfillInfo() {
   const cap = Math.max(5, getSettings().arc?.capMessages ?? 40);
   const count = uncoveredPrefixLen();
@@ -65,8 +65,8 @@ export function getBackfillInfo() {
 }
 
 /**
- * Прогнать backfill в выбранном режиме.
- * mode: 'full' (cheap-AI) | 'light' (без LLM)
+ * Run backfill in the chosen mode.
+ * mode: 'full' (cheap-AI) | 'light' (no LLM)
  */
 export async function runBackfill(mode = 'full') {
   if (getBaseline() == null) {
@@ -82,14 +82,14 @@ export async function runBackfill(mode = 'full') {
     globalThis.toastr?.info?.(t('toast.backfillNone'));
     return false;
   }
-  logBackfillSeals(ids);            // таймлайн: отметить нарезанные пласты
+  logBackfillSeals(ids);            // timeline: mark the cut slabs
   if (mode === 'light') {
     await autoHideMaintain();
     globalThis.toastr?.success?.(t('toast.backfillLight', { n: ids.length }));
     return true;
   }
-  // Full: включаем backfillActive (так drain пройдёт и в Balanced/Lite), ставим
-  // arc-extract'ы и слушаем дренаж очереди — тогда запустим auto-hide и тост.
+  // Full: enable backfillActive (so drain runs even in Balanced/Lite), enqueue
+  // arc-extracts, and listen for queue drain — then run auto-hide and the toast.
   await setBackfillActive(true);
   onQueueDrained(async () => {
     try { await autoHideMaintain(); } catch (e) { console.warn('[ChaoticLorebooks] backfill autoHide:', e); }
@@ -102,7 +102,7 @@ export async function runBackfill(mode = 'full') {
   return true;
 }
 
-/** Попап с двумя радио (Full / Light), Full по умолчанию. */
+/** Popup with two radios (Full / Light), Full by default. */
 export async function runBackfillFlow() {
   if (!backfillAvailable()) {
     globalThis.toastr?.info?.(t('toast.backfillNone'));
@@ -144,19 +144,19 @@ export async function runBackfillFlow() {
 }
 
 /**
- * Вызывается из CHAT_CHANGED ПОСЛЕ seedBaselineIfNeeded: один раз на чат
- * показывает модал (флаг хранится в chatMetadata). Баннер в дровере и кнопка
- * в настройках всегда деривируются из backfillAvailable(), не из «показано/нет».
+ * Called from CHAT_CHANGED AFTER seedBaselineIfNeeded: shows the modal once per chat
+ * (flag stored in chatMetadata). The drawer banner and the settings button always
+ * derive from backfillAvailable(), not from "shown/not shown".
  */
 export async function maybeOfferBackfill() {
   try {
     if (!backfillAvailable()) return;
     const meta = ctx().chatMetadata;
     if (!meta) return;
-    if (meta[PROMPT_SHOWN_KEY]) return;          // модал уже показывали в этом чате
+    if (meta[PROMPT_SHOWN_KEY]) return;          // modal already shown in this chat
     meta[PROMPT_SHOWN_KEY] = true;
     try { await ctx().saveMetadata(); } catch { /* ok */ }
-    // Лёгкая задержка, чтобы UI ST успел отрисоваться.
+    // Small delay so ST's UI has time to render.
     setTimeout(() => { runBackfillFlow().catch(warn); }, 400);
   } catch (e) { warn(e); }
 }

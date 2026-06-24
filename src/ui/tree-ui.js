@@ -1,11 +1,11 @@
-// tree-ui.js — выезжающее дерево (mobile-first). Фаза B: 3 вкладки вместо 4
-// (анти-перегруз UI, SPEC §0.8):
-//   Memory   — ИИ-память: Воспоминания (ярус 2) + Лорбук-дерево + Арки + добавить заметку
-//   Saved    — избранные соо и цитаты в одной вкладке (фильтр-чипы)
-//   Thoughts — буфер мыслей (ярус 1)
-// Под шапкой — компактная строка статуса (режим · книга · арки · узлы графа).
+// tree-ui.js — sliding drawer tree (mobile-first). Phase B: 3 tabs instead of 4
+// (anti-clutter UI, SPEC §0.8):
+//   Memory   — AI memory: Recollections (tier 2) + lorebook tree + Arcs + add note
+//   Saved    — favorite messages and quotes in one tab (filter chips)
+//   Thoughts — thought buffer (tier 1)
+// Below the header: a compact status line (mode · book · arcs · graph nodes).
 //
-// Метки: 🟢. Цвета берём из темы ST (CSS-переменные), не хардкодим.
+// Cost: 🟢. Colors come from the ST theme (CSS variables), not hardcoded.
 
 import { t } from '../core/i18n.js';
 import { buildTree } from '../lorebook/tree-store.js';
@@ -21,8 +21,8 @@ import { isChatEnabled, toggleChatEnabled } from '../core/chat-state.js';
 import { getSealedArcs, sealReady, getArc } from '../memory/arc-segmenter.js';
 import { enqueue } from '../core/job-queue.js';
 import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from '../memory/auto-hide.js';
-// afterSeal живёт в оркестраторе (index.js): активность+снапшот+саммари+скрытие одним местом.
-// Живой биндинг, зовётся только в обработчике клика → циклический импорт безопасен.
+// afterSeal lives in the orchestrator (index.js): activity+snapshot+summary+hide in one place.
+// Live binding, called only inside a click handler → circular import is safe.
 import { afterSeal } from '../../index.js';
 import {
   getGists, setActive as setRecActive, bulkSetArc, removeGist,
@@ -37,6 +37,7 @@ import { buildTimeline, restoreTo, snapshotNow } from '../memory/timeline.js';
 
 let drawerEl = null;
 let savedFilter = 'all';   // all | message | quote
+let bufferEditMode = false;  // default: locked (view-only)
 
 export function ensureDrawer() {
   if (drawerEl) return drawerEl;
@@ -66,7 +67,7 @@ export function ensureDrawer() {
   return drawerEl;
 }
 
-// Легенда условных обозначений (эмодзи) — попап со списком символов и значений.
+// Legend of symbols (emoji) — popup listing each symbol and its meaning.
 function showLegend() {
   const c = SillyTavern.getContext();
   const rows = [
@@ -80,6 +81,7 @@ function showLegend() {
     ['permanent · chance · relevant', t('ui.legend.modes')],
     ['★ · • · ·', t('ui.legend.significance')],
     ['📸 / ⏪', t('ui.legend.restore')],
+    ['1 · 2 · 3', t('ui.legend.bufImp')],
   ];
   const wrap = document.createElement('div');
   wrap.className = 'cl-choose cl-legend';
@@ -111,10 +113,10 @@ async function switchTab(name) {
   else if (name === 'saved') body.innerHTML = renderSavedHtml();
   else body.innerHTML = renderBufferHtml();
   wireBody(body, name);
-  refreshStatus();   // async, не блокирует
+  refreshStatus();   // async, non-blocking
 }
 
-// --- Строка статуса ---
+// --- Status line ---
 async function refreshStatus() {
   const el = drawerEl?.querySelector('#cl-status');
   if (!el) return;
@@ -132,13 +134,13 @@ async function refreshStatus() {
     <span>${t('ui.status.arcs', { n: arcs })}</span>
     <span id="cl-status-graph">· …</span>
     ${memSeg}`;
-  // пер-чатовый тумблер: клик → переключить и перерисовать статус
+  // per-chat toggle: click → toggle and redraw status
   el.querySelector('#cl-chat-toggle')?.addEventListener('click', async () => {
     const nowOn = await toggleChatEnabled();
     globalThis.toastr?.[nowOn ? 'success' : 'info']?.(nowOn ? t('toast.chatOn') : t('toast.chatOff'));
     refreshStatus();
   });
-  // узлы графа читаются из книги (async) — дольём отдельно
+  // graph nodes are read from the book (async) — fill in separately
   try {
     const { nodes } = await graphStats();
     const g = el.querySelector('#cl-status-graph');
@@ -149,7 +151,7 @@ async function refreshStatus() {
   }
 }
 
-// --- Вкладка Memory ---
+// --- Memory tab ---
 async function renderMemoryHtml() {
   return `
     ${renderBackfillBanner()}
@@ -181,7 +183,7 @@ function renderRecollectionsSection() {
   if (!gists.length) {
     inner = `<p class="cl-empty">${t('ui.rec.empty')}</p>`;
   } else {
-    const gistStart = (g) => getArc(g.arcId)?.start ?? g.arcId ?? 0; // хронологический порядок (по началу арки)
+    const gistStart = (g) => getArc(g.arcId)?.start ?? g.arcId ?? 0; // chronological order (by arc start)
     inner = gists.slice().sort((a, b) => gistStart(a) - gistStart(b)).map((g) => `
       <div class="cl-gist ${g.active === false ? 'cl-disabled' : ''}" data-id="${g.id}">
         <div class="cl-gist-text">${escapeHtml(g.gist)}</div>
@@ -237,7 +239,7 @@ function renderArcsSection() {
   return section(t('ui.sec.arcs'), t('ui.arcs.sub', { n: arcs.length }), inner, false);
 }
 
-/** Бейдж значимости арки (Фаза C). Нет значения (deep-extract выкл) → пусто. */
+/** Arc significance badge (Phase C). No value (deep-extract off) → empty. */
 function sigBadge(a) {
   if (typeof a.significance !== 'number') return '';
   const s = getSettings();
@@ -248,15 +250,15 @@ function sigBadge(a) {
   return `<span class="cl-sig" title="${ta('ui.title.sigMid')}">•</span> `;
 }
 
-/** Иконка типа флага: галлюцинация / аудит / обычное противоречие. */
+/** Flag-type icon: hallucination / audit / plain contradiction. */
 function driftIcon(f) {
   if (f.kind === 'hallucination') return '👻';
   return f.source === 'audit' ? '🔍' : '⚠️';
 }
 
 /**
- * Секция дрейфа/аномалий (Фаза C) + кнопка «Аудит сейчас» (Фаза D — кросс-арочный
- * аудит). Видна, если есть флаги ИЛИ периодический аудит включён.
+ * Drift/anomalies section (Phase C) + "Audit now" button (Phase D — cross-arc audit).
+ * Visible if there are flags OR periodic audit is enabled.
  */
 function renderDriftSection() {
   const s = getSettings();
@@ -284,17 +286,17 @@ function driftLine(f) {
   return t('ui.drift.contradiction', { from: f.from, rel: f.rel, to: f.to });
 }
 
-// --- Таймлайн (Фаза D): что расширение сделало в фоне + точки восстановления ---
+// --- Timeline (Phase D): what the extension did in the background + restore points ---
 const ACTIVITY_ICON = {
   'arc-seal': '📦', extract: '🧪', 'graph-merge': '🕸', drift: '⚠️', audit: '🔍',
   branch: '🌿', restore: '⏪', 'global-copy': '🌐', 'global-disable': '🌐',
 };
-// Иконка точки восстановления по причине снапшота (бэкап).
+// Restore-point icon keyed by snapshot reason (backup).
 const SNAPSHOT_ICON = {
   'arc-seal': '📸', rolling: '📸', safety: '🛟', manual: '💾', 'pre-restore': '⏪',
 };
 
-/** Компактное «N назад» для строки лога; полная метка — в title. */
+/** Compact "N ago" for the log row; full timestamp in the title. */
 function fmtAgo(at) {
   const ms = Date.now() - (Number(at) || 0);
   if (ms < 0 || !at) return '';
@@ -307,12 +309,12 @@ function fmtAgo(at) {
   return `${Math.floor(h / 24)}d`;
 }
 
-/** Абсолютная метка времени для title (полная дата). */
+/** Absolute timestamp for the title (full date). */
 function fmtFull(at) {
   try { return new Date(at).toLocaleString(); } catch { return ''; }
 }
 
-/** Строка события активности (то же, что было в Activity). */
+/** Activity event row (same as the old Activity view). */
 function activityRow(e) {
   return `<div class="cl-drift" data-id="${e.id}">
     <span class="cl-drift-kind" title="${escapeHtml(e.kind)}">${ACTIVITY_ICON[e.kind] || '•'}</span>
@@ -323,7 +325,7 @@ function activityRow(e) {
   </div>`;
 }
 
-/** Строка точки восстановления (снапшот книги) + кнопка ⏪ Restore. */
+/** Restore-point row (book snapshot) + ⏪ Restore button. */
 function snapshotRow(e) {
   return `<div class="cl-drift" data-id="${e.id}">
     <span class="cl-drift-kind" title="${ta('ui.title.restorePoint')} · ${escapeHtml(e.reason)}">${SNAPSHOT_ICON[e.reason] || '📸'}</span>
@@ -336,9 +338,9 @@ function snapshotRow(e) {
 }
 
 /**
- * Секция «Timeline» — единая хронология фоновых действий + точек восстановления
- * (Фаза D). Видна, если включён лог активности ИЛИ бэкапы (чтобы точки отката были
- * доступны даже при выключенном логе). Прячется целиком, если timeline.enabled=false.
+ * "Timeline" section — one chronology of background actions + restore points (Phase D).
+ * Visible if the activity log OR backups are enabled (so restore points stay available
+ * even with the log off). Hidden entirely if timeline.enabled=false.
  */
 function renderTimelineSection() {
   const s = getSettings();
@@ -356,13 +358,13 @@ function renderTimelineSection() {
   if (!rows.length) {
     inner = controls + `<p class="cl-empty">${t('ui.timeline.empty')}</p>`;
   } else {
-    // переиспользуем стили .cl-drift (как renderReviewCandidates) — без нового CSS.
+    // reuse .cl-drift styles (like renderReviewCandidates) — no new CSS.
     inner = controls + rows.map((e) => (e.type === 'snapshot' ? snapshotRow(e) : activityRow(e))).join('');
   }
   return section(t('ui.sec.timeline'), `${rows.length}`, inner, false);
 }
 
-// --- Бюджет контекста (Фаза D): индикатор здоровья памяти + condense/review ---
+// --- Context budget (Phase D): memory health indicator + condense/review ---
 function budgetPct(rep) {
   if (!rep?.target) return 0;
   return Math.min(100, Math.round((rep.used / rep.target) * 100));
@@ -372,7 +374,7 @@ function fmtTok(n) {
   return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v);
 }
 
-/** Секция «Memory budget» (Фаза D). Скрыта, если бюджет выключен. */
+/** "Memory budget" section (Phase D). Hidden if the budget is disabled. */
 function renderBudgetSection() {
   const s = getSettings();
   if (!s.contextBudget?.enabled) return '';
@@ -415,7 +417,7 @@ function renderReviewCandidates(cands, summary) {
   return `<p class="cl-empty">${escapeHtml(summary)}</p>${rows}`;
 }
 
-/** Свёртываемая секция <details>. */
+/** Collapsible <details> section. */
 function section(title, sub, inner, open) {
   return `<details class="cl-section" ${open ? 'open' : ''}>
     <summary>${escapeHtml(title)} ${sub ? `<span class="cl-count">${escapeHtml(sub)}</span>` : ''}</summary>
@@ -432,23 +434,28 @@ function renderBufferHtml() {
   };
   const kindOpt = (v, cur) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${escapeHtml(kindLabel[v] ?? v)}</option>`;
   const impOpt = (v, cur) => `<option value="${v}" ${Number(cur) === v ? 'selected' : ''}>${v}</option>`;
-  return buf.slice().sort((a, b) => b.weight - a.weight).map((i) =>
+  const editMode = bufferEditMode;
+  const toolbar = `<div class="cl-buf-toolbar">
+    <button id="cl-buf-edit-toggle" class="cl-edit-toggle" title="${editMode ? ta('ui.title.bufEditUnlocked') : ta('ui.title.bufEditLocked')}">${editMode ? '🔓' : '🔒'}</button>
+  </div>`;
+  const items = buf.slice().sort((a, b) => b.weight - a.weight).map((i) =>
     `<div class="cl-bufitem" data-id="${i.id}">
-       <textarea class="cl-buf-text" data-buf-edit="${i.id}">${escapeHtml(i.text)}</textarea>
+       <textarea class="cl-buf-text" data-buf-edit="${i.id}"${editMode ? '' : ' readonly'}>${escapeHtml(i.text)}</textarea>
        <div class="cl-buf-actions">
-         <select class="cl-mode" data-buf-kind="${i.id}" title="${ta('ui.title.bufKind')}">
+         <select class="cl-mode" data-buf-kind="${i.id}" title="${ta('ui.title.bufKind')}"${editMode ? '' : ' disabled'}>
            ${BUFFER_KINDS.map((k) => kindOpt(k, i.kind)).join('')}
          </select>
-         <select class="cl-mode" data-buf-imp="${i.id}" title="${ta('ui.title.bufImp')}">
+         <select class="cl-mode" data-buf-imp="${i.id}" title="${ta('ui.title.bufImp')}"${editMode ? '' : ' disabled'}>
            ${[1, 2, 3].map((n) => impOpt(n, i.importance)).join('')}
          </select>
          <span class="cl-weight" title="${ta('ui.title.bufWeight')}">w:${Math.round(i.weight * 10) / 10}</span>
-         <button data-rm="${i.id}" class="cl-rm" title="${ta('ui.title.delete')}">✕</button>
+         ${editMode ? `<button data-rm="${i.id}" class="cl-rm" title="${ta('ui.title.delete')}">✕</button>` : ''}
        </div>
      </div>`).join('');
+  return toolbar + items;
 }
 
-// --- Вкладка Saved (избранное + цитаты, фильтр-чипы) ---
+// --- Saved tab (favorites + quotes, filter chips) ---
 function renderSavedHtml() {
   const chip = (v, label) => `<button class="cl-chip ${savedFilter === v ? 'cl-chip-on' : ''}" data-chip="${v}">${label}</button>`;
   const chips = `<div class="cl-chips">${chip('all', t('ui.chip.all'))}${chip('message', t('ui.chip.messages'))}${chip('quote', t('ui.chip.quotes'))}</div>`;
@@ -491,7 +498,15 @@ function wireBody(body, name) {
 }
 
 function wireThoughts(body) {
-  // правка текста пункта: авто-высота + сохранение по change (blur/Enter)
+  // edit toggle: 🔒/🔓 (default locked — view-only)
+  body.querySelector('#cl-buf-edit-toggle')?.addEventListener('click', async () => {
+    bufferEditMode = !bufferEditMode;
+    await switchTab('thoughts');
+  });
+
+  if (!bufferEditMode) return; // locked: textarea readonly, selects disabled → don't attach handlers
+
+  // edit item text: auto-height + save on change (blur/Enter)
   const autoSize = (el) => { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; };
   body.querySelectorAll('[data-buf-edit]').forEach((ta) => {
     autoSize(ta);
@@ -515,18 +530,18 @@ function wireThoughts(body) {
 }
 
 function wireMemory(body) {
-  // Backfill-баннер: открыть попап с выбором Full/Light и перерисовать таб после.
+  // Backfill banner: open the Full/Light choice popup, then redraw the tab.
   body.querySelector('#cl-backfill-banner-btn')?.addEventListener('click', async () => {
     try { await runBackfillFlow(); } catch (e) { console.warn('[ChaoticLorebooks] backfill flow:', e); }
     await switchTab('memory');
   });
-  // добавить авторскую заметку (origin=user, никогда не перезаписывается автоматикой)
+  // add an author note (origin=user, never overwritten by automation)
   body.querySelector('#cl-note-add')?.addEventListener('click', async () => {
     const input = body.querySelector('#cl-note-input');
     const text = input?.value?.trim();
     if (!text) return;
     try {
-      // Явное действие юзера → можно показать попап выбора книги (если askOnFirstUse).
+      // Explicit user action → may show the book-choice popup (if askOnFirstUse).
       await ensureBook(getSettings());
       const { enqueueWrite } = await import('../lorebook/lorebook-writer.js');
       const ok = await enqueueWrite({
@@ -543,7 +558,7 @@ function wireMemory(body) {
     await switchTab('memory');
   });
 
-  // воспоминания: тумблер active / удаление
+  // recollections: toggle active / delete
   body.querySelectorAll('[data-rec-toggle]').forEach((b) =>
     b.addEventListener('click', async () => {
       const g = getGists().find((x) => x.id === b.dataset.recToggle);
@@ -552,7 +567,7 @@ function wireMemory(body) {
   body.querySelectorAll('[data-rec-rm]').forEach((b) =>
     b.addEventListener('click', async () => { await removeGist(b.dataset.recRm); await switchTab('memory'); }));
 
-  // арки: запечатать сейчас / вернуть скрытое / забыть арку
+  // arcs: seal now / reveal hidden / forget arc
   body.querySelector('#cl-arc-seal')?.addEventListener('click', async () => {
     const sealed = await sealReady();
     if (sealed) { await afterSeal(sealed); globalThis.toastr?.success?.(t('toast.arcSealed', { id: sealed.id })); }
@@ -569,7 +584,7 @@ function wireMemory(body) {
       globalThis.toastr?.info?.(t('toast.arcMuted', { id: b.dataset.arcForget }));
       await switchTab('memory');
     }));
-  // регенерация саммари арки (ручной запуск — force=true, обходит lite и существующий gist)
+  // regenerate arc summary (manual run — force=true, bypasses lite and existing gist)
   body.querySelectorAll('[data-arc-regen]').forEach((b) =>
     b.addEventListener('click', async () => {
       const arcId = Number(b.dataset.arcRegen);
@@ -579,27 +594,27 @@ function wireMemory(body) {
       await switchTab('memory');
     }));
 
-  // дрейф: снять флаг (Dismiss) — помечаем resolved, ничего не удаляем из графа
+  // drift: dismiss a flag — mark resolved, remove nothing from the graph
   body.querySelectorAll('[data-drift-dismiss]').forEach((b) =>
     b.addEventListener('click', async () => {
       await resolveDriftFlag(b.dataset.driftDismiss);
       await switchTab('memory');
     }));
 
-  // таймлайн: «Clear log» — очистить ленту активности (память/снапшоты не трогаем).
+  // timeline: "Clear log" — clear the activity feed (memory/snapshots untouched).
   body.querySelector('#cl-activity-clear')?.addEventListener('click', async () => {
     await clearActivityLog();
     await switchTab('memory');
   });
 
-  // таймлайн: «Snapshot now» — ручная точка восстановления.
+  // timeline: "Snapshot now" — manual restore point.
   body.querySelector('#cl-tl-snapshot')?.addEventListener('click', async () => {
     const id = await snapshotNow();
     globalThis.toastr?.[id ? 'success' : 'info']?.(id ? t('toast.snapshotSaved') : t('toast.snapshotNoBook'));
     await switchTab('memory');
   });
 
-  // таймлайн: «⏪ Restore» — откат книги к точке. Подтверждение + safety-снапшот внутри.
+  // timeline: "⏪ Restore" — roll the book back to a point. Confirm + safety snapshot inside.
   body.querySelectorAll('[data-tl-restore]').forEach((b) =>
     b.addEventListener('click', async () => {
       const id = b.dataset.tlRestore;
@@ -618,8 +633,8 @@ function wireMemory(body) {
       await switchTab('memory');
     }));
 
-  // дрейф: «Аудит сейчас» — кросс-арочный аудит графа. В autonomous → один LLM-проход;
-  // иначе код-only (структурные противоречия + suspect), без платного вызова.
+  // drift: "Audit now" — cross-arc graph audit. In autonomous → one LLM pass;
+  // otherwise code-only (structural contradictions + suspect), no paid call.
   body.querySelector('#cl-drift-audit-now')?.addEventListener('click', async () => {
     const btn = body.querySelector('#cl-drift-audit-now');
     const out = body.querySelector('#cl-drift-audit-out');
@@ -632,7 +647,7 @@ function wireMemory(body) {
     await switchTab('memory');
   });
 
-  // бюджет: «Сократить» — опускаем target на шаг (эффект со след. генерации)
+  // budget: "Tighten" — lower the target by one step (takes effect next generation)
   body.querySelector('#cl-budget-tighten')?.addEventListener('click', async () => {
     const s = getSettings();
     const cur = s.contextBudget?.target ?? 3000;
@@ -641,7 +656,7 @@ function wireMemory(body) {
     globalThis.toastr?.info?.(t('toast.budgetTarget', { n: s.contextBudget.target }));
     await switchTab('memory');
   });
-  // бюджет: «Пересмотр» — список устаревших огрызков; «забыть» = active=false (восстановимо)
+  // budget: "Review" — list stale fragments; "forget" = active=false (recoverable)
   body.querySelector('#cl-budget-review')?.addEventListener('click', async () => {
     const out = body.querySelector('#cl-budget-review-out');
     if (out) out.innerHTML = `<p class="cl-empty">${t('ui.reviewing')}</p>`;
@@ -659,8 +674,8 @@ function wireMemory(body) {
 function wireSaved(body) {
   body.querySelectorAll('[data-chip]').forEach((b) =>
     b.addEventListener('click', () => { savedFilter = b.dataset.chip; switchTab('saved'); }));
-  // Высота поля = высоте контента, и растёт при наборе → re-render не «сбрасывает
-  // растянутое поле к исходному размеру» (длинные соо больше не урезаются на 500).
+  // Field height = content height, growing while typing → re-render no longer
+  // resets a stretched field to its original size (long messages aren't clipped at 500).
   const autoSize = (ta) => { ta.style.height = 'auto'; ta.style.height = `${ta.scrollHeight}px`; };
   body.querySelectorAll('[data-edit]').forEach((ta) => {
     autoSize(ta);
@@ -686,16 +701,16 @@ function wireSaved(body) {
 }
 
 function escapeHtml(s) {
-  // DOMPurify живёт на ctx.libs (или window-шиме), не на SillyTavern.libs.
+  // DOMPurify lives on ctx.libs (or the window shim), not on SillyTavern.libs.
   const DOMPurify = SillyTavern.getContext()?.libs?.DOMPurify ?? globalThis.DOMPurify;
   const str = String(s ?? '');
   return DOMPurify ? DOMPurify.sanitize(str) : str.replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-// t() для значения HTML-атрибута (title="…"/placeholder="…"). ВСЕГДА экранируем
-// кавычки/угловые сами: escapeHtml идёт через DOMPurify.sanitize, а тот НЕ
-// экранирует " в текстовом контексте → для атрибута его недостаточно.
+// t() for an HTML attribute value (title="…"/placeholder="…"). ALWAYS escape
+// quotes/angle brackets ourselves: escapeHtml goes through DOMPurify.sanitize, which
+// does NOT escape " in a text context → insufficient for an attribute.
 function ta(key, vars) {
   return String(t(key, vars)).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

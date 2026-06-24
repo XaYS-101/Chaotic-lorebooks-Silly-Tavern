@@ -1,32 +1,32 @@
-// chat-state.js — пер-чатовый тумблер «расширение выключено для ЭТОГО чата».
-// Лист-модуль: НОЛЬ extension-импортов (читает только getContext()) → импортится
-// откуда угодно без цикла. Флаг живёт в chatMetadata (свой на чат, переживает
-// перезагрузку, форк наследует — но это ок: ветка тоже выключена осознанно).
+// chat-state.js — per-chat toggle "extension disabled for THIS chat".
+// Leaf module: zero extension imports (reads only getContext()), so it can be
+// imported anywhere without cycles. The flag lives in chatMetadata (per-chat,
+// survives reload, inherited by forks — fine: a branch is intentionally off too).
 //
-// Семантика: ключа нет / false → включено (дефолт ON). true → выключено для чата.
+// Semantics: key absent / false → enabled (default ON). true → disabled for chat.
 
 const KEY = 'chaoticLorebooks_chatOff';
 
 function ctx() { return SillyTavern.getContext(); }
 
-/** Включено ли расширение для текущего чата (дефолт — да). */
+/** Whether the extension is enabled for the current chat (default yes). */
 export function isChatEnabled() {
   try { return ctx().chatMetadata?.[KEY] !== true; } catch { return true; }
 }
 
-/** Явно задать состояние для текущего чата и сохранить метаданные. */
+/** Explicitly set the state for the current chat and persist metadata. */
 export async function setChatEnabled(on) {
   try {
     const meta = ctx().chatMetadata;
     if (!meta) return;
-    if (on) delete meta[KEY]; else meta[KEY] = true;   // включено = отсутствие флага (чисто)
+    if (on) delete meta[KEY]; else meta[KEY] = true;   // enabled = absence of flag (clean)
     await ctx().saveMetadata();
   } catch (e) {
     console.warn('[ChaoticLorebooks] setChatEnabled failed:', e);
   }
 }
 
-/** Переключить и вернуть НОВОЕ состояние (true = теперь включено). */
+/** Toggle and return the NEW state (true = now enabled). */
 export async function toggleChatEnabled() {
   const next = !isChatEnabled();
   await setChatEnabled(next);

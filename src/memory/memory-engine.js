@@ -1,18 +1,18 @@
-// memory-engine.js — Stage-1 «движок памяти» конвейера §4b.
+// memory-engine.js — Stage-1 "memory engine" of the §4b pipeline.
 //
-// Дешёвая модель читает широко → отдаёт дорогой (= нативной генерации ST) только
-// ДИСТИЛЛЯТ. Здесь живёт СБОРКА ядра памяти (огрызки + подграф + ретрив/scout) —
-// ровно то, что раньше собирал injector.js inline, — но теперь:
-//   • кэшируется по сцене: на статичной сцене НЕ пересобираем ядро, переиспользуем
-//     прошлое (injector обновляет лишь локальные 🟢: буфер/избранное);
-//   • опционально проходит ОДИН дешёвый Compose/Compress-вызов (call 2 из §4b):
-//     сжать до бюджета, voiceQuotes ДОСЛОВНО, снять явные противоречия.
+// The cheap model reads broadly → hands the expensive model (= ST's native generation)
+// only the DISTILLATE. This is where the memory CORE is assembled (gists + subgraph +
+// retrieval/scout) — exactly what injector.js used to build inline — but now:
+//   • cached per scene: on a static scene the core is NOT rebuilt, the previous one is
+//     reused (injector only refreshes the local 🟢 tiers: buffer/favorites);
+//   • optionally runs ONE cheap Compose/Compress call (call 2 of §4b): compress to
+//     budget, keep voiceQuotes VERBATIM, resolve explicit contradictions.
 //
-// Деградация встроена: LLM=null → сырое код-ядро; pipeline выкл → ведём себя как
-// v0.9.0 (всегда свежая сборка, без кэша и без compose). Финальный потолок всё
-// равно ставит context-budget.fitBudget в injector — это движок не отменяет.
+// Degradation built in: LLM=null → raw code core; pipeline off → behaves like v0.9.0
+// (always a fresh build, no cache, no compose). The final ceiling is still set by
+// context-budget.fitBudget in injector — the engine doesn't replace that.
 //
-// Метки: каркас ядра 🟢; Compose-проход 🟡 с откатом.
+// Markers: core scaffold 🟢; Compose pass 🟡 with fallback.
 
 import { getSettings, backgroundJobsAllowed } from '../core/settings.js';
 import { renderToc } from '../lorebook/tree-store.js';
@@ -23,45 +23,45 @@ import { loadGraph, neighborhood, serializeSubgraph } from './knowledge-graph.js
 import { entitiesInWindow } from './entity-extract.js';
 import { agentRequest } from '../llm/llm-service.js';
 
-// Кэш ядра прошлой сборки. Сбрасывается на смене чата и запечатывании арки
-// (см. index.js), иначе переживёт статичную сцену и переиспользуется.
+// Cache of the last-built core. Cleared on chat switch and arc sealing (see index.js),
+// otherwise it survives a static scene and gets reused.
 let cache = null; // { blocks: [{tier,text,priority}] } | null
 
-/** Сбросить кэш ядра (новый чат / новая запечатанная арка → ядро устарело). */
+/** Clear the core cache (new chat / newly sealed arc → core is stale). */
 export function resetCache() {
   cache = null;
 }
 
 /**
- * Собрать ЯДРО памяти Stage-1 (огрызки + подграф + ретрив).
+ * Build the Stage-1 memory CORE (gists + subgraph + retrieval).
  * @param {object} o
- * @param {{wake:boolean, shift:boolean}} o.det  результат scene-detector.evaluate()
- * @param {number} o.target                       целевой бюджет токенов всей памяти
- * @param {boolean} o.useCache                    кэшировать ядро по сцене (pipeline.enabled)
- * @param {boolean} o.useComposeLLM               прогнать дешёвый Compose-проход (pipeline.composeLLM)
+ * @param {{wake:boolean, shift:boolean}} o.det  result of scene-detector.evaluate()
+ * @param {number} o.target                       target token budget for all memory
+ * @param {boolean} o.useCache                    cache the core per scene (pipeline.enabled)
+ * @param {boolean} o.useComposeLLM               run the cheap Compose pass (pipeline.composeLLM)
  * @returns {Promise<{blocks: Array, fromCache: boolean}>}
  */
 export async function buildCore({ det, target, useCache, useComposeLLM }) {
   const s = getSettings();
 
-  // 1) КЭШ-ХИТ: статичная сцена + есть прошлое ядро → переиспользуем (главная
-  //    экономия §4b: без scout/Compose, без BFS по графу на каждом ходу).
+  // 1) CACHE HIT: static scene + a previous core exists → reuse it (the main §4b
+  //    saving: no scout/Compose, no graph BFS on every turn).
   if (useCache && !det.wake && cache?.blocks) {
     return { blocks: cache.blocks, fromCache: true };
   }
 
-  // 2) GATHER (свежая сборка ядра). Та же логика/приоритеты, что injector.js до §4b.
+  // 2) GATHER (fresh core build). Same logic/priorities as injector.js before §4b.
   const blocks = [];
   const push = (tier, text, priority) => { if (text) blocks.push({ tier, text, priority }); };
 
-  // 2c) ЯРУС 2 — воспоминания (огрызки запечатанных арок). БЕЗ LLM (🟢).
+  // 2c) TIER 2 — recollections (gists of sealed arcs). NO LLM (🟢).
   if (s.recollection?.enabled !== false) {
     const rec = await renderRecollection(s.recollection?.budget).catch(() => '');
     push('recollection', rec, 60);
   }
 
-  // 2d) ЯРУС 3 — подграф вокруг сущностей сцены (эго-граф). БЕЗ LLM на инъекции (🟢):
-  //     только BFS по уже смёрженному графу + сериализация компактных триплетов.
+  // 2d) TIER 3 — subgraph around the scene's entities (ego-graph). NO LLM on injection (🟢):
+  //     just BFS over the already-merged graph + serialization of compact triples.
   if (s.graph?.enabled !== false) {
     try {
       const g = await loadGraph();
@@ -75,19 +75,19 @@ export async function buildCore({ det, target, useCache, useComposeLLM }) {
     } catch (e) { console.warn('[ChaoticLorebooks] graph inject skipped:', e); }
   }
 
-  // 3) ретрив: будим scout ТОЛЬКО на сдвиге сцены/по cap (не по жёсткому модулю)
+  // 3) retrieval: wake scout ONLY on a scene shift / cap (not on a hard modulo)
   const useAgent = s.retrievalMode === 'agent' && det.wake;
   if (useAgent) {
     const retrieved = await retrieveWithReason();   // 🟡
     if (retrieved) push('toc', retrieved, 70);
     else push('toc', await renderToc(), 70);
   } else {
-    push('toc', await renderToc(), 70);             // дешёвый путь 🟢
+    push('toc', await renderToc(), 70);             // cheap path 🟢
   }
 
-  // 3b) Буфер мыслей не привязан к agent-ретриву: обновляем в любом не-lite режиме
-  //     на сдвиге сцены или пока буфер пуст в начале чата (агент-запрос откатится
-  //     на текущее подключение, если выделенный агент не настроен). Fire-and-forget.
+  // 3b) The thought buffer is not tied to agent retrieval: update in any non-lite mode
+  //     on a scene shift, or while the buffer is empty early in the chat (the agent
+  //     request falls back to the current connection if no dedicated agent). Fire-and-forget.
   if (s.thoughtBuffer?.enabled && backgroundJobsAllowed(s)) {
     const chatLen = (SillyTavern.getContext().chat ?? []).length;
     if (det.wake || (getBuffer().length === 0 && chatLen >= 2)) {
@@ -95,31 +95,28 @@ export async function buildCore({ det, target, useCache, useComposeLLM }) {
     }
   }
 
-  // 4) COMPOSE/COMPRESS (call 2 §4b, опц.) — ОДИН дешёвый проход дистилляции.
-  //    Только при сдвиге сцены (на статике переиспользуем кэш) и агентном режиме.
+  // 4) COMPOSE/COMPRESS (call 2 §4b, optional) — ONE cheap distillation pass.
+  //    Only on a scene shift (static scenes reuse the cache) and in agent mode.
   if (useComposeLLM && useAgent && blocks.length) {
     const distilled = await composeBundle(blocks, target).catch(() => null);
     if (distilled) {
-      // Заменяем сырое ядро ОДНИМ дистиллятом (приоритет ретрива — держим в бюджете).
+      // Replace the raw core with ONE distillate (retrieval priority — keep within budget).
       const composed = [{ tier: 'core', text: distilled, priority: 65 }];
       if (useCache) cache = { blocks: composed };
       return { blocks: composed, fromCache: false };
     }
-    // distilled=null → деградация: оставляем сырые блоки ниже.
+    // distilled=null → degradation: keep the raw blocks below.
   }
 
   if (useCache) cache = { blocks };
   return { blocks, fromCache: false };
 }
 
-/**
- * Дешёвый Compose/Compress-проход: сжать собранное ядро до бюджета, voiceQuotes
- * ДОСЛОВНО, снять только ЯВНЫЕ противоречия. Возврат: текст или null (откат).
- */
+/** Cheap Compose/Compress pass: reduce core to budget, keep quotes verbatim. Returns text or null. */
 async function composeBundle(blocks, target) {
   const gathered = blocks.map((b) => b.text).join('\n\n');
   if (!gathered.trim()) return null;
-  const limit = Math.max(500, Math.round((target ?? 3000) * 0.8)); // ядро ≈ доля общего бюджета
+  const limit = Math.max(500, Math.round((target ?? 3000) * 0.8)); // core ≈ share of total budget
   const system = 'You compress a roleplay MEMORY bundle for a writer model. '
     + `Keep it under ~${limit} tokens. `
     + 'Keep any quoted lines ("...") VERBATIM — they preserve the character\'s voice. '

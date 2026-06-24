@@ -1,6 +1,6 @@
-// settings-panel.js — рендер панели настроек в раздел Extensions и
-// двусторонняя привязка инпутов к настройкам. Всё 🟢.
-// Держим index.js тонким — вся возня с панелью тут.
+// settings-panel.js — renders the settings panel in the Extensions section and
+// two-way binds inputs to settings. All 🟢.
+// Keeps index.js thin — all panel wiring lives here.
 
 import { getSettings, saveSettings, applyMode, MODULE_NAME } from './settings.js';
 import { t, localize } from './i18n.js';
@@ -9,7 +9,7 @@ import { downloadDiagnostics } from './debug-trace.js';
 import { seedBaselineIfNeeded } from '../memory/arc-segmenter.js';
 import { maybeOfferBackfill } from '../memory/backfill.js';
 
-// id инпута → путь в настройках + тип. Только РЕАЛЬНЫЕ v0-настройки.
+// input id → settings path + type. Only REAL v0 settings.
 const BINDINGS = [
   ['cl-enabled', 'enabled', 'bool'],
   ['cl-ui-language', 'uiLanguage', 'str'],
@@ -27,7 +27,7 @@ const BINDINGS = [
   ['cl-resurface', 'resurfacing.enabled', 'bool'],
   ['cl-resurface-chance', 'resurfacing.chance', 'float'],
   ['cl-resurface-depth', 'resurfacing.depth', 'int'],
-  // Фаза A — арки, авто-скрытие, бэкапы
+  // Phase A — arcs, auto-hide, backups
   ['cl-autohide-enabled', 'autoHide.enabled', 'bool'],
   ['cl-autohide-window', 'autoHide.windowSize', 'int'],
   ['cl-autohide-aftersummary', 'autoHide.afterSummary', 'bool'],
@@ -38,7 +38,7 @@ const BINDINGS = [
   ['cl-arc-editthresh', 'arc.editDirtyThreshold', 'float'],
   ['cl-backup-enabled', 'backup.enabled', 'bool'],
   ['cl-backup-keep', 'backup.keepCount', 'int'],
-  // Фаза B — ярусы памяти + граф
+  // Phase B — memory tiers + graph
   ['cl-rec-enabled', 'recollection.enabled', 'bool'],
   ['cl-rec-max', 'recollection.maxGists', 'int'],
   ['cl-rec-quotes', 'recollection.voiceQuotesPerArc', 'int'],
@@ -47,37 +47,37 @@ const BINDINGS = [
   ['cl-graph-maxnodes', 'graph.maxNodes', 'int'],
   ['cl-graph-hops', 'graph.subgraphHops', 'int'],
   ['cl-graph-budget', 'graph.budget', 'int'],
-  // Фаза C — глубокое извлечение + дрейф
+  // Phase C — deep extraction + drift
   ['cl-deep-enabled', 'deepExtract.enabled', 'bool'],
   ['cl-deep-llmmode', 'deepExtract.llmMode', 'str'],
   ['cl-deep-pin', 'deepExtract.pinThreshold', 'float'],
   ['cl-drift-enabled', 'drift.cheapEnabled', 'bool'],
   ['cl-drift-audit', 'drift.auditEnabled', 'bool'],
   ['cl-drift-audit-n', 'drift.auditEveryNMessages', 'int'],
-  // Фаза D — глобальный бюджет контекста
+  // Phase D — global context budget
   ['cl-cb-enabled', 'contextBudget.enabled', 'bool'],
   ['cl-cb-target', 'contextBudget.target', 'int'],
   ['cl-cb-autoreview', 'contextBudget.autoReview', 'bool'],
-  // Фаза D §4b — двухстадийный конвейер (Stage-1 движок памяти)
+  // Phase D §4b — two-stage pipeline (Stage-1 memory engine)
   ['cl-pipeline-enabled', 'pipeline.enabled', 'bool'],
   ['cl-pipeline-compose', 'pipeline.composeLLM', 'bool'],
-  // Фаза D — лента активности + таймлайн
+  // Phase D — activity feed + timeline
   ['cl-timeline-enabled', 'timeline.enabled', 'bool'],
   ['cl-activity-enabled', 'activityLog.enabled', 'bool'],
   ['cl-activity-max', 'activityLog.maxEntries', 'int'],
-  // branch-guard — изоляция книги на форке чата
+  // branch-guard — book isolation on chat fork
   ['cl-branch-enabled', 'branch.enabled', 'bool'],
   ['cl-branch-ask', 'branch.askOnFork', 'bool'],
   ['cl-branch-action', 'branch.defaultAction', 'str'],
-  // global-reconciler — изоляция, когда книга активна глобально
+  // global-reconciler — isolation when the book is globally active
   ['cl-global-enabled', 'globalReconciler.enabled', 'bool'],
   ['cl-global-ask', 'globalReconciler.askOnDetected', 'bool'],
   ['cl-global-action', 'globalReconciler.defaultAction', 'str'],
-  // Диагностика (ветка testing)
+  // Diagnostics (testing branch)
   ['cl-debug-enabled', 'debug.enabled', 'bool'],
 ];
 
-// Подсказки режима — через i18n (ключи set.hint.*), чтобы EN/RU совпадали.
+// Mode hints — via i18n (set.hint.* keys) so EN/RU stay in sync.
 const MODE_HINT_KEY = { lite: 'set.hint.lite', balanced: 'set.hint.balanced', autonomous: 'set.hint.autonomous' };
 const modeHint = (mode) => (MODE_HINT_KEY[mode] ? t(MODE_HINT_KEY[mode]) : '');
 
@@ -100,11 +100,11 @@ function coerce(type, el) {
 export async function renderSettingsPanel() {
   let html;
   try {
-    // Грузим settings.html ОТНОСИТЕЛЬНО самого модуля (import.meta.url), а НЕ по
-    // хардкод-имени папки: ST ставит расширение в third-party/<имя-репо>
-    // (= Chaotic-lorebooks-Silly-Tavern), а не «chaotic-lorebooks», поэтому прежний
-    // путь ломался и панель была пустой. settings-panel.js лежит в src/core/ →
-    // settings.html в корне расширения = на два уровня выше.
+    // Load settings.html RELATIVE to the module itself (import.meta.url), NOT by a
+    // hardcoded folder name: ST installs the extension under third-party/<repo-name>
+    // (= Chaotic-lorebooks-Silly-Tavern), not "chaotic-lorebooks", so the old path
+    // broke and the panel was empty. settings-panel.js is in src/core/ → settings.html
+    // at the extension root is two levels up.
     html = await (await fetch(new URL('../../settings.html', import.meta.url))).text();
   } catch (e) {
     console.warn('[ChaoticLorebooks] settings.html load failed:', e);
@@ -117,30 +117,30 @@ export async function renderSettingsPanel() {
   wrap.innerHTML = html;
   container.appendChild(wrap);
 
-  localize(wrap);   // перевести статичные [data-cl-i18n] под текущий язык
+  localize(wrap);   // translate static [data-cl-i18n] for the current language
   bindInputs();
-  populateAgentProfiles();   // заполнить список профилей подключения (после bindInputs)
+  populateAgentProfiles();   // fill the connection-profile list (after bindInputs)
   wireProfileButtons();      // Refresh / + New profile
-  wireApiManager();          // кастомные эндпоинты (New/Delete/поля)
-  wireSourceSwitch();        // ST-профиль ⇄ кастомный эндпоинт (показ блоков)
+  wireApiManager();          // custom endpoints (New/Delete/fields)
+  wireSourceSwitch();        // ST profile ⇄ custom endpoint (block visibility)
   wireDangerZone();          // 🗑 Clear all data
   wireDiagnostics();         // ⬇ Download diagnostics
   wireBackfill();            // ↻ Process existing messages
 
-  // Смена языка интерфейса → перелокализовать панель «вживую» (без перезагрузки).
-  // Значение уже сохранено generic-биндингом выше; getLang сразу видит новое.
+  // UI language change → re-localize the panel live (no reload). The value is
+  // already saved by the generic binding above; getLang sees it immediately.
   document.getElementById('cl-ui-language')?.addEventListener('change', () => {
     localize(wrap);
-    populateAgentProfiles();  // дефолтная опция «(текущее подключение)» — через t(), перелокализуем
+    populateAgentProfiles();  // the default "(current connection)" option uses t() — re-localize
     const modeEl = document.getElementById('cl-mode');
     const hintEl = document.getElementById('cl-mode-hint');
     if (modeEl && hintEl) hintEl.textContent = modeHint(modeEl.value);
   });
 }
 
-// --- Профили подключения (двухмодельная схема) -----------------------------
-// Профили хранит Connection Manager в extensionSettings.connectionManager.profiles
-// (массив { id:UUID, name, mode, ... }); sendRequest идентифицирует профиль по ID.
+// --- Connection profiles (two-model scheme) --------------------------------
+// Profiles are stored by Connection Manager in extensionSettings.connectionManager.profiles
+// (array { id:UUID, name, mode, ... }); sendRequest identifies a profile by ID.
 function getConnectionProfiles() {
   try {
     const cm = SillyTavern.getContext()?.extensionSettings?.connectionManager;
@@ -148,14 +148,14 @@ function getConnectionProfiles() {
   } catch { return []; }
 }
 
-/** Перестроить #cl-agent-profile из сохранённых профилей ST, сохранив выбор. */
+/** Rebuild #cl-agent-profile from saved ST profiles, preserving the selection. */
 function populateAgentProfiles() {
   const sel = document.getElementById('cl-agent-profile');
   if (!sel) return;
   const stored = getByPath(getSettings(), 'agentProfile') || '';
 
   sel.innerHTML = '';
-  const def = document.createElement('option');     // «(текущее подключение)» = пустая строка
+  const def = document.createElement('option');     // "(current connection)" = empty string
   def.value = '';
   def.textContent = t('set.agent.profileDefault');
   sel.appendChild(def);
@@ -168,7 +168,7 @@ function populateAgentProfiles() {
     sel.appendChild(o);
   }
 
-  // Восстановить выбор; если сохранённый профиль исчез — откат на текущее подключение.
+  // Restore the selection; if the saved profile is gone, fall back to current connection.
   sel.value = stored;
   if (sel.value !== stored) {
     sel.value = '';
@@ -185,8 +185,8 @@ function wireProfileButtons() {
       console.warn('[ChaoticLorebooks] createProfile failed:', e)));
 }
 
-/** «+ New profile» — на свой страх и риск: снимок ТЕКУЩЕГО подключения в новый
- *  профиль через нативную команду ST /profile-create (она же покажет свой UI). */
+/** "+ New profile" — at your own risk: snapshot the CURRENT connection into a new
+ *  profile via ST's native /profile-create command (which shows its own UI). */
 async function createProfile() {
   const c = SillyTavern.getContext();
   const POPUP_TYPE = c.POPUP_TYPE ?? {};
@@ -196,11 +196,11 @@ async function createProfile() {
       okButton: t('popup.ok'), cancelButton: t('popup.cancel'),
     });
   } catch { return; }
-  if (name === false || name == null) return;            // отмена
+  if (name === false || name == null) return;            // cancelled
   name = String(name).trim();
   if (!name) return;
 
-  // Имя как один аргумент команды: экранируем кавычки и оборачиваем.
+  // Name as a single command argument: escape quotes and wrap.
   const arg = `"${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   try {
     const run = c.executeSlashCommandsWithOptions || c.executeSlashCommands;
@@ -212,7 +212,7 @@ async function createProfile() {
     return;
   }
 
-  // Подхватить только что созданный профиль (он становится selectedProfile).
+  // Pick up the just-created profile (it becomes selectedProfile).
   populateAgentProfiles();
   const sel = document.getElementById('cl-agent-profile');
   const newId = c?.extensionSettings?.connectionManager?.selectedProfile;
@@ -347,7 +347,7 @@ function wireApiManager() {
   }
 }
 
-// --- Опасная зона: полный сброс -------------------------------------------
+// --- Danger zone: full reset ----------------------------------------------
 function wireDangerZone() {
   document.getElementById('cl-clear-data')?.addEventListener('click', async () => {
     const c = SillyTavern.getContext();
@@ -381,7 +381,7 @@ function wireDangerZone() {
   });
 }
 
-// --- Backfill: разовый прогон по поздно-включённому чату ------------------
+// --- Backfill: one-time run over a late-enabled chat ----------------------
 function wireBackfill() {
   document.getElementById('cl-backfill-run')?.addEventListener('click', async () => {
     try {
@@ -394,7 +394,7 @@ function wireBackfill() {
   });
 }
 
-// --- Диагностика: выгрузка снимка состояния в JSON ------------------------
+// --- Diagnostics: export a state snapshot as JSON -------------------------
 function wireDiagnostics() {
   document.getElementById('cl-diag-download')?.addEventListener('click', () => {
     const ok = downloadDiagnostics();
@@ -452,9 +452,9 @@ async function clearAllData(scope = 'chat') {
   }
 }
 
-// Только ЗАПОЛНИТЬ инпуты текущими значениями (без навешивания слушателей).
-// Вызывается из bindInputs (один раз) и после смены режима (режим меняет
-// зависимые поля). НЕ навешивает слушатели → их нельзя задублировать.
+// Only FILL inputs with current values (no listeners attached). Called from
+// bindInputs (once) and after a mode change (mode alters dependent fields).
+// Does NOT attach listeners → they can't be duplicated.
 function fillInputs() {
   const s = getSettings();
   for (const [id, path, type] of BINDINGS) {
@@ -472,9 +472,9 @@ function fillInputs() {
 }
 
 function bindInputs() {
-  fillInputs();   // проставить значения один раз
+  fillInputs();   // set values once
 
-  // навесить слушатели РОВНО ОДИН раз на свежий DOM панели
+  // attach listeners EXACTLY ONCE on the fresh panel DOM
   for (const [id, path, type] of BINDINGS) {
     const el = document.getElementById(id);
     if (!el) continue;
@@ -484,14 +484,14 @@ function bindInputs() {
     });
   }
 
-  // режим
+  // mode
   const modeEl = document.getElementById('cl-mode');
   const hintEl = document.getElementById('cl-mode-hint');
   if (modeEl) {
     modeEl.addEventListener('change', () => {
       applyMode(modeEl.value);
       if (hintEl) hintEl.textContent = modeHint(modeEl.value);
-      // режим поменял зависимые поля → ТОЛЬКО перечитать значения, не перевешивать слушатели
+      // mode changed dependent fields → ONLY re-read values, don't re-attach listeners
       fillInputs();
     });
   }

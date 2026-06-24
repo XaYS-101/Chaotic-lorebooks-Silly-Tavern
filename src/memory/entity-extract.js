@@ -1,15 +1,15 @@
-// entity-extract.js — выделение СУЩНОСТЕЙ из текста (Фаза B).
-// Назначение двоякое:
-//   1) дать `arc-summary`/scout alias-aware список сущностей активного окна —
-//      чтобы строить эго-граф (окрестность вокруг них), а не тащить весь граф;
-//   2) служить allow-list'ом против галлюцинаций для извлечения фактов.
+// entity-extract.js — extract ENTITIES from text (Phase B).
+// Dual purpose:
+//   1) give arc-summary/scout an alias-aware list of entities in the active window —
+//      to build an ego-graph (the neighborhood around them) instead of the whole graph;
+//   2) serve as an anti-hallucination allow-list for fact extraction.
 //
-// Код-путь (🟢, без LLM): имена собственные (заглавная буква, юникод) + матч по
-// известным узлам графа и их алиасам. Этого хватает для эго-графа и инъекции.
-// Опциональный 🟡-путь (только при autonomous.enabled) уточняет тип сущности —
-// но НИКОГДА не на критическом пути и с деградацией в код-результат.
+// Code path (🟢, no LLM): proper nouns (capitalized, Unicode) + match against known
+// graph nodes and their aliases. Enough for the ego-graph and injection.
+// Optional 🟡 path (only when autonomous.enabled) refines entity type — but NEVER on
+// the critical path, and degrades to the code result.
 //
-// Метки: 🟢 базово, 🟡 опционально. Деградация встроена.
+// Markers: 🟢 baseline, 🟡 optional. Degradation built in.
 
 import { getSettings } from '../core/settings.js';
 import { contentTokens, stem } from './text-relevance.js';
@@ -17,26 +17,26 @@ import { contentTokens, stem } from './text-relevance.js';
 function ctx() { return SillyTavern.getContext(); }
 function chat() { return ctx().chat ?? []; }
 
-// Имя собственное: слово с заглавной (лат/кир), ≥3 букв. Те же правила, что в
-// lorebook-writer.deriveKeys — единый «вид» ключей по всему расширению.
+// Proper noun: a capitalized word (Latin/Cyrillic), ≥3 letters. Same rules as in
+// lorebook-writer.deriveKeys — one key "shape" across the whole extension.
 const PROPER_RE = /\b([A-ZА-ЯЁ][\p{L}]{2,})\b/gu;
 
-// Слова, которые часто стоят с заглавной, но сущностями не являются (шум начала
-// предложения и обращения). Сравниваем по стему, чтобы покрыть падежи.
+// Words often capitalized but not entities (sentence-start noise and pronouns).
+// Compared by stem to cover inflected forms.
 const NOISE = new Set(['The', 'You', 'And', 'But', 'She', 'His', 'Her', 'They',
   'Что', 'Как', 'Это', 'Так', 'Вот', 'Они', 'Она'].map((w) => stem(w.toLowerCase())));
 
 /**
- * Выделить сущности из текста.
+ * Extract entities from text.
  * @param {string} text
- * @param {Array<{id,name,type,aliases?}>} [knownNodes] узлы графа для alias-матча
+ * @param {Array<{id,name,type,aliases?}>} [knownNodes] graph nodes for alias matching
  * @returns {Array<{name, type, count, stem}>}
  */
 export function extractEntities(text, knownNodes = []) {
   const src = String(text || '');
   if (!src) return [];
 
-  // Индекс известных узлов по стему имени и алиасов (alias-aware матч).
+  // Index known nodes by the stem of their name and aliases (alias-aware match).
   const known = new Map();   // stem → {name, type}
   for (const n of knownNodes) {
     for (const label of [n.name, ...(n.aliases || [])]) {
@@ -62,10 +62,10 @@ export function extractEntities(text, knownNodes = []) {
 }
 
 /**
- * Сущности активного окна (последние n устоявшихся соо) — для эго-графа и инъекции.
+ * Entities in the active window (last n settled messages) — for the ego-graph and injection.
  * @param {number} [n=6]
  * @param {Array} [knownNodes]
- * @returns {string[]} имена сущностей по убыванию частоты
+ * @returns {string[]} entity names, most frequent first
  */
 export function entitiesInWindow(n = 6, knownNodes = []) {
   const c = chat();
@@ -76,15 +76,15 @@ export function entitiesInWindow(n = 6, knownNodes = []) {
 }
 
 /**
- * Уточнить ТИПЫ сущностей дешёвой ИИ (опц.). Возвращает обновлённый список или
- * исходный при деградации. Зовётся только из фоновых джоб (autonomous), не в инъекции.
+ * Refine entity TYPES with a cheap LLM (optional). Returns the updated list, or the
+ * original on degradation. Called only from background jobs (autonomous), never in injection.
  * @param {Array<{name,type}>} entities
- * @param {string} contextText фрагмент сцены для контекста
+ * @param {string} contextText scene fragment for context
  */
 export async function classifyTypes(entities, contextText = '') {
   const s = getSettings();
   if (!s.autonomous?.enabled || !entities.length) return entities;
-  // Уже всё типизировано известными узлами — LLM не нужен.
+  // Everything already typed via known nodes — no LLM needed.
   if (entities.every((e) => e.type && e.type !== 'unknown')) return entities;
 
   try {
@@ -106,8 +106,8 @@ export async function classifyTypes(entities, contextText = '') {
   }
 }
 
-/** Стем имени — общий помощник для дедупа сущностей по падежам. */
+/** Name stem — shared helper for deduping entities across grammatical cases. */
 export function entityKey(name) { return stem(String(name || '').toLowerCase()); }
 
-/** Контент-токены имени (для трайграм/префильтра в графе). */
+/** Content tokens of a name (for trigram/prefilter in the graph). */
 export function nameTokens(name) { return contentTokens(name); }

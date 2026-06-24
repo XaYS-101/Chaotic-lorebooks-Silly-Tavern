@@ -1,18 +1,19 @@
-// branch-guard.js — изоляция памяти при форке чата (SPEC §7, отложено с Фазы A). Всё 🟢.
+// branch-guard.js — memory isolation on chat fork (SPEC §7). All 🟢.
 //
-// Проблема: ST при ветвлении чата (branchChat → «… - Branch #N») КОПИРУЕТ
-// chat_metadata родителя в новый чат — вместе с привязкой книги (world_info) и
-// всем нашим состоянием (chaoticLorebooks_*). Таймлайны расходятся, но ДЕЛЯТ
-// одну книгу: в autonomous фоновый агент ветки пишет арки/граф/воспоминания в
-// книгу РОДИТЕЛЯ, переписывая его память событиями, которых там не было.
+// Problem: when ST branches a chat (branchChat → "… - Branch #N") it COPIES the
+// parent's chat_metadata into the new chat — including the book binding
+// (world_info) and all our state (chaoticLorebooks_*). The timelines diverge but
+// SHARE one book: in autonomous mode the branch's background agent writes
+// arcs/graph/memories into the PARENT's book, overwriting its memory with events
+// that never happened there.
 //
-// Решение: при входе в форк предложить дать ветке СВОЮ книгу (копия → ребинд).
-// Без LLM, во всех режимах, идемпотентно, не спрашивает дважды про одну ветку.
+// Solution: on entering a fork, offer the branch its OWN book (copy → rebind).
+// No LLM, all modes, idempotent, never asks twice for the same branch.
 //
-// Сверено с ST (public/scripts/bookmarks.js, script.js):
-//   - отдельного события ветвления НЕТ; форк лишь шлёт CHAT_CHANGED после открытия.
-//   - признак ветки/чекпойнта: chat_metadata.main_chat = имя родительского чата.
-//   - на форке metadata = {...chat_metadata, ...{main_chat}} → наследуется world_info.
+// Checked against ST (public/scripts/bookmarks.js, script.js):
+//   - there is no dedicated branch event; a fork only emits CHAT_CHANGED on open.
+//   - branch/checkpoint marker: chat_metadata.main_chat = parent chat name.
+//   - on fork metadata = {...chat_metadata, ...{main_chat}} → world_info inherited.
 
 import { getSettings, saveSettings } from '../core/settings.js';
 import { getBoundBookName, forkBook, deriveBranchBookName } from './lorebook-service.js';
@@ -20,8 +21,8 @@ import { reconcileArcsToChat } from '../memory/arc-segmenter.js';
 import { log as logActivity } from '../memory/activity-log.js';
 import { t } from '../core/i18n.js';
 
-const MAIN_CHAT_KEY = 'main_chat';   // нативный маркер ветки/чекпойнта в chat_metadata
-const HANDLED_CAP = 200;             // сколько обработанных веток помним (rolling)
+const MAIN_CHAT_KEY = 'main_chat';   // native branch/checkpoint marker in chat_metadata
+const HANDLED_CAP = 200;             // how many handled branches we remember (rolling)
 
 function ctx() { return SillyTavern.getContext(); }
 function currentChatId() { try { return ctx().getCurrentChatId?.() ?? null; } catch { return null; } }
@@ -29,9 +30,9 @@ function parentChat() {
   try { return ctx().chatMetadata?.[MAIN_CHAT_KEY] || null; } catch { return null; }
 }
 
-// --- Глобальный handled-set (в настройках, НЕ в chatMetadata) ---
-// Хранится в extension_settings → не копируется форком, поэтому суб-ветка
-// уже обработанной ветки всё равно спросит (нет ложного «уже обработано»).
+// --- Global handled-set (in settings, NOT in chatMetadata) ---
+// Stored in extension_settings → not copied by a fork, so a sub-branch of an
+// already-handled branch still asks (no false "already handled").
 function handledList() {
   const b = getSettings().branch;
   if (!Array.isArray(b._handled)) b._handled = [];
@@ -43,14 +44,14 @@ function markHandled(chatId) {
   const list = handledList();
   if (list.includes(chatId)) return;
   list.push(chatId);
-  if (list.length > HANDLED_CAP) list.splice(0, list.length - HANDLED_CAP); // выкинуть старые
+  if (list.length > HANDLED_CAP) list.splice(0, list.length - HANDLED_CAP); // drop oldest
   saveSettings();
 }
 
 /**
- * Попап выбора действия на форке. Строим РЕАЛЬНЫЙ DOM (callGenericPopup может
- * изолировать его — держим ссылки в замыкании). Возвращает
- * { action:'fork'|'share', name } | null (отмена).
+ * Action-choice popup on fork. Build a REAL DOM (callGenericPopup may isolate it
+ * — keep refs in the closure). Returns
+ * { action:'fork'|'share', name } | null (cancel).
  */
 async function forkPopup(parentBook, suggestedName) {
   const c = ctx();
@@ -86,23 +87,23 @@ async function forkPopup(parentBook, suggestedName) {
     return null;
   }
   const affirmative = POPUP_RESULT.AFFIRMATIVE ?? 1;
-  if (res !== affirmative && res !== true) return null;     // отмена → не помечаем handled
+  if (res !== affirmative && res !== true) return null;     // cancel → don't mark handled
 
   const action = wrap.querySelector('input[name="cl-fork"]:checked')?.value || 'fork';
   return { action, name: (nameInput?.value || suggestedName).trim() };
 }
 
-// Минимальный экранировщик (DOMPurify не обязателен здесь — имена книг короткие).
+// Minimal HTML escaper (DOMPurify not needed here — book names are short).
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (ch) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
   ));
 }
 
-/** Применить форк книги: копия+ребинд, подгонка арок, уведомление. */
+/** Apply book fork: copy+rebind, reconcile arcs, notify. */
 async function doFork(parentBook, dstName) {
   const created = await forkBook(parentBook, dstName);
-  if (!created) {                              // копия не удалась → делим книгу (старое поведение)
+  if (!created) {                              // copy failed → share the book (old behavior)
     globalThis.toastr?.warning?.(t('toast.branch.forkFail'));
     return false;
   }
@@ -113,41 +114,41 @@ async function doFork(parentBook, dstName) {
 }
 
 /**
- * Вызывается на CHAT_CHANGED. Если текущий чат — свежевошедшая ветка, делящая
- * книгу с родителем, предлагает изолировать её. Полностью защищено: любая
- * ошибка → no-op (смену чата не блокируем).
+ * Called on CHAT_CHANGED. If the current chat is a freshly-entered branch
+ * sharing a book with its parent, offer to isolate it. Fully guarded: any
+ * error → no-op (never block the chat switch).
  */
 export async function maybeHandleFork() {
   try {
     const s = getSettings();
-    if (s.branch?.enabled === false) return;          // фича выключена
-    if (!parentChat()) return;                         // не ветка/чекпойнт → выходим
+    if (s.branch?.enabled === false) return;          // feature off
+    if (!parentChat()) return;                         // not a branch/checkpoint → exit
 
     const chatId = currentChatId();
-    if (isHandled(chatId)) return;                     // уже разбирались с этой веткой
+    if (isHandled(chatId)) return;                     // already handled this branch
 
     const book = getBoundBookName();
-    if (!book) { markHandled(chatId); return; }        // нечего изолировать
+    if (!book) { markHandled(chatId); return; }        // nothing to isolate
 
     const suggested = deriveBranchBookName(book);
     const action = s.branch?.defaultAction === 'share' ? 'share' : 'fork';
 
-    if (s.branch?.askOnFork === false) {               // без вопроса — по defaultAction
+    if (s.branch?.askOnFork === false) {               // no prompt — use defaultAction
       if (action === 'fork') await doFork(book, suggested);
       markHandled(chatId);
       return;
     }
 
     const choice = await forkPopup(book, suggested);
-    if (!choice) return;                               // отмена → спросим снова при след. входе
+    if (!choice) return;                               // cancel → ask again next entry
     if (choice.action === 'fork') await doFork(book, choice.name || suggested);
-    markHandled(chatId);                               // fork ИЛИ share → больше не спрашиваем
+    markHandled(chatId);                               // fork OR share → stop asking
   } catch (e) {
     console.warn('[ChaoticLorebooks] maybeHandleFork error:', e);
   }
 }
 
-/** Debug/тест: забыть, что ветка обработана (чтобы попап показался снова). */
+/** Debug/test: forget that a branch was handled (so the popup shows again). */
 export function resetHandledForChat(chatId) {
   const list = handledList();
   const i = list.indexOf(chatId ?? currentChatId());

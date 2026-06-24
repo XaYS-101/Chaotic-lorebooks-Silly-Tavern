@@ -1,18 +1,18 @@
-// arc-summary.js — извлечение из запечатанной арки (Фаза B, 🟡).
-// Один проход на арку (железное правило #3 — инкрементальность): дешёвая ИИ
-// читает пласт арки и возвращает:
-//   - gist        — 1-3 предложения сути арки (для яруса 2);
-//   - voiceQuotes — 2-4 ДОСЛОВНЫЕ реплики персонажа (держат стиль);
-//   - triples     — связи {from,rel,to,weight} для графа (ярус 3).
-// Затем:
-//   - кладём gist на арку (arc-segmenter.setSummaryGist);
-//   - добавляем огрызок в recollection (ярус 2);
-//   - ставим джобу 'graph-merge' (гибрид-мёрж триплетов вне крит. пути);
-//   - пишем STANDALONE keyed-энтри арки в книгу (origin=auto-arc) — книга помнит
-//     арку по ключевым словам даже с выключенным расширением.
+// arc-summary.js — extraction from a sealed arc (Phase B, 🟡).
+// One pass per arc (hard rule #3 — incremental): a cheap LLM reads the arc slab
+// and returns:
+//   - gist        — 1-3 sentences of the arc's essence (for tier 2);
+//   - voiceQuotes — 2-4 VERBATIM character lines (preserve voice);
+//   - triples     — relationships {from,rel,to,weight} for the graph (tier 3).
+// Then:
+//   - store the gist on the arc (arc-segmenter.setSummaryGist);
+//   - add a gist to recollection (tier 2);
+//   - enqueue 'graph-merge' (hybrid triple merge off the critical path);
+//   - write a STANDALONE keyed arc entry to the book (origin=auto-arc) — the book
+//     remembers the arc by keywords even with the extension disabled.
 //
-// Зовётся ТОЛЬКО из обработчика job 'arc-extract' (autonomous). Деградация: LLM
-// вернул null → арка не обрабатывается, очередь повторит (до 3 раз), чат не страдает.
+// Called ONLY from the 'arc-extract' job handler (autonomous). Degradation: LLM
+// returns null → arc not processed, queue retries (up to 3), chat unaffected.
 
 import { getSettings, backgroundJobsAllowed } from '../core/settings.js';
 import { agentRequest, parseJsonLoose } from '../llm/llm-service.js';
@@ -46,18 +46,18 @@ const SCHEMA = {
 };
 
 /**
- * Обработать запечатанную арку. Возвращает true при успехе, false при деградации.
+ * Process a sealed arc. Returns true on success, false on degradation.
  * @param {number} arcId
- * @param {{force?: boolean}} [opts] force=true — ручной перезапуск из UI: обходит
- *   гейт режима (работает даже в lite) и игнорирует уже стоящий gist (пере-суммаризует).
+ * @param {{force?: boolean}} [opts] force=true — manual rerun from UI: bypasses the
+ *   mode gate (works even in lite) and ignores an existing gist (re-summarizes).
  */
 export async function summarizeArc(arcId, opts = {}) {
   const force = !!opts.force;
   const s = getSettings();
   if (s.extraction?.enabled === false && !force) return false;
-  // Саммари арки — дешёвая фон-джоба: идёт во всех режимах, кроме lite (там память
-  // не строится вовсе). Разовый backfill (поздно-включённый чат) пускаем даже в lite —
-  // флаг живёт в chatMetadata, очередь его же чекает. Ручной force тоже проходит везде.
+  // Arc summary is a cheap background job: runs in all modes except lite (where
+  // memory isn't built at all). One-time backfill (late-enabled chat) runs even in
+  // lite — its flag lives in chatMetadata, checked by the queue. Manual force runs everywhere.
   const backfillActive = !!(SillyTavern.getContext().chatMetadata?.chaoticLorebooks_backfillActive);
   if (!backgroundJobsAllowed(s) && !backfillActive && !force) return false;
 
@@ -66,7 +66,7 @@ export async function summarizeArc(arcId, opts = {}) {
   const text = arcText(arcId);
   if (!text || text.length < 20) { await setSummaryGist(arcId, ''); return false; }
 
-  // alias-aware подсказка известных сущностей — анти-галлюцинация для триплетов.
+  // alias-aware hint of known entities — anti-hallucination for triples.
   let knownNames = [];
   try { knownNames = Object.values((await loadGraph()).nodes).map((n) => n.name); } catch { /* ok */ }
   const quotesN = Math.max(2, Math.min(4, s.recollection?.voiceQuotesPerArc ?? 3));
@@ -99,30 +99,30 @@ export async function summarizeArc(arcId, opts = {}) {
   const triples = Array.isArray(parsed.triples)
     ? parsed.triples.filter((t) => t && t.from && t.to && t.rel) : [];
 
-  // H6: calibrated confidence — валидация сущностей и цитат по тексту арки.
+  // H6: calibrated confidence — validate entities and quotes against the arc text.
   const { scoredTriples, hallucinated } = validateTriples(triples, text);
   const validatedQuotes = validateQuotes(voiceQuotes, text);
 
-  // Фаза C: значимость арки (чистый код, синхронно) — влияет на пиннинг и приоритет
-  // огрызка в момент записи. deep-extract выключен → нейтральные 0.5 (старое поведение).
+  // Phase C: arc significance (pure code, synchronous) — affects pinning and gist
+  // priority at write time. deep-extract off → neutral 0.5 (legacy behavior).
   const deep = s.deepExtract?.enabled && s.autonomous?.enabled;
   const significance = deep ? scoreSignificance({ triples: scoredTriples, text, gist }) : 0.5;
 
-  // 1) огрызок арки на саму арку + в ярус 2 (со значимостью для приоритета затухания)
+  // 1) arc gist onto the arc itself + into tier 2 (with significance for decay priority)
   await setSummaryGist(arcId, gist);
   if (deep) await setArcSignificance(arcId, significance);
   const refs = entityKeysFromTriples(scoredTriples);
   await addGist({ gist, voiceQuotes: validatedQuotes, graphRefs: refs, arcId, significance });
 
-  // 2) триплеты → граф. С deep-extract: сперва allow-list/дрейф (job 'deep-extract'),
-  //    он сам поставит очищенный 'graph-merge'. Иначе — прямой мёрж (как в Фазе B).
-  //    Галлюцинации (confidence='low') → вес ×0.5 перед мёржем.
+  // 2) triples → graph. With deep-extract: first allow-list/drift (job 'deep-extract'),
+  //    which itself enqueues a cleaned 'graph-merge'. Otherwise direct merge (as in Phase B).
+  //    Hallucinations (confidence='low') → weight ×0.5 before merge.
   if (deep) {
     await enqueue('deep-extract', { arcId, triples: scoredTriples, text, gist, hallucinated });
   } else if (scoredTriples.length && s.graph?.enabled !== false) {
     await enqueue('graph-merge', { arcId, triples: scoredTriples });
   }
-  // Записать галлюцинации в дрейф-флаги для ручного разбора.
+  // Record hallucinations as drift flags for manual review.
   if (hallucinated.length) {
     try {
       const { addDriftFlags } = await import('./deep-extractor.js');
@@ -138,8 +138,8 @@ export async function summarizeArc(arcId, opts = {}) {
     } catch { /* deep-extractor unavailable — skip flagging */ }
   }
 
-  // 3) STANDALONE keyed-энтри арки (книга помнит и без расширения).
-  //    Арка 0 = фундамент знакомства → автопин; значимая арка (≥ pinThreshold) тоже.
+  // 3) STANDALONE keyed arc entry (book remembers even without the extension).
+  //    Arc 0 = foundation of introductions → auto-pin; a significant arc (≥ pinThreshold) too.
   const keys = deriveArcKeys(scoredTriples, text);
   const isFoundation = arc.foundation === true || arcId === 0;
   const pinned = isFoundation || (deep && significance >= (s.deepExtract?.pinThreshold ?? 0.7));
@@ -166,7 +166,7 @@ function entityKeysFromTriples(triples) {
   return [...set].slice(0, 12);
 }
 
-/** Ключи для standalone-энтри: сущности триплетов, иначе имена собственные из текста. */
+/** Keys for the standalone entry: triple entities, else proper nouns from the text. */
 function deriveArcKeys(triples, text) {
   const fromTriples = entityKeysFromTriples(triples);
   if (fromTriples.length) return fromTriples.slice(0, 6);
@@ -176,9 +176,9 @@ function deriveArcKeys(triples, text) {
 // --- H6: Calibrated confidence — pure-code validation ---
 
 /**
- * Провалидировать триплеты по тексту арки. Каждая сущность (from/to) должна
- * присутствовать в тексте арки (иначе — галлюцинация). Возвращает scoredTriples
- * (с полем _confidence) и отдельно список hallucinated (confidence='low').
+ * Validate triples against the arc text. Each entity (from/to) must appear in the
+ * arc text (else it's a hallucination). Returns scoredTriples (with a _confidence
+ * field) and a separate hallucinated list (confidence='low').
  */
 function validateTriples(triples, arcText) {
   const norm = String(arcText ?? '').toLowerCase();
@@ -187,12 +187,12 @@ function validateTriples(triples, arcText) {
   for (const t of triples) {
     const fromConf = entityConfidence(t.from, norm);
     const toConf = entityConfidence(t.to, norm);
-    // Консервативно: confidence = min(from, to) — если хоть одна сущность
-    // не найдена, весь триплет под подозрением.
+    // Conservative: confidence = min(from, to) — if either entity is missing,
+    // the whole triple is suspect.
     const conf = Math.min(fromConf, toConf);
     const scoredT = { ...t, _confidence: conf };
     if (conf < 0.4) {
-      // Низкая уверенность → вес ×0.5 при мёрже в граф.
+      // Low confidence → weight ×0.5 on merge into the graph.
       scoredT.weight = Math.max(1, Math.round((scoredT.weight ?? 5) * 0.5));
       hallucinated.push(scoredT);
     }
@@ -202,44 +202,44 @@ function validateTriples(triples, arcText) {
 }
 
 /**
- * Поиск сущности в тексте арки. exact match → 1.0, fuzzy (все слова есть) → 0.7,
- * частичное совпадение → 0.4, отсутствует → 0.1.
+ * Look up an entity in the arc text. exact match → 1.0, fuzzy (all words present)
+ * → 0.7, partial match → 0.4, absent → 0.1.
  */
 function entityConfidence(name, normText) {
   const n = String(name ?? '').trim().toLowerCase();
   if (!n) return 0.5;
-  // Exact substring match (имя как цельная фраза).
+  // Exact substring match (name as a whole phrase).
   if (normText.includes(n)) return 1.0;
-  // Fuzzy: все токены имени присутствуют в тексте.
+  // Fuzzy: all name tokens present in the text.
   const tokens = n.split(/\s+/).filter(Boolean);
   if (tokens.length > 1 && tokens.every((t) => normText.includes(t))) return 0.7;
-  // Частичное: хотя бы один токен >3 символов присутствует.
+  // Partial: at least one token >3 chars present.
   if (tokens.some((t) => t.length > 3 && normText.includes(t))) return 0.4;
-  // Полностью отсутствует → вероятная галлюцинация.
+  // Entirely absent → probable hallucination.
   return 0.1;
 }
 
 /**
- * Провалидировать voice-цитаты: каждая должна быть найдена (с вариациями
- * пунктуации/капитализации) в тексте арки. Возвращает только подтверждённые.
+ * Validate voice quotes: each must be found (allowing punctuation/capitalization
+ * variation) in the arc text. Returns only the confirmed ones.
  */
 function validateQuotes(quotes, arcText) {
   const norm = String(arcText ?? '').toLowerCase().replace(/[.,!?;:'"()\-—«»„"`'']/g, '');
   return quotes.filter((q) => {
     const qNorm = String(q).toLowerCase().replace(/[.,!?;:'"()\-—«»„"`'']/g, '');
-    // Допуск: цитата длиной ≥20 символов и подстрока в очищенном тексте.
+    // Tolerance: quote ≥20 chars and a substring of the cleaned text.
     return qNorm.length >= 8 && norm.includes(qNorm.slice(0, Math.min(qNorm.length, 60)));
   });
 }
 
-// --- Авто-регенерация пустых саммари арок ---
+// --- Auto-regeneration of empty arc summaries ---
 
 const EMPTY_GIST_COUNT_KEY = 'chaoticLorebooks_emptyGistRetryCount';
 
 /**
- * Счётчик устоявшихся ходов для регенерации пустых саммари арок.
- * Возвращает true раз в N ходов (по умолчанию 3). Не учитывает свайпы —
- * MESSAGE_SWIPED не зовёт onSettledTurn.
+ * Settled-turn counter for regenerating empty arc summaries.
+ * Returns true once every N turns (default 3). Ignores swipes —
+ * MESSAGE_SWIPED doesn't call onSettledTurn.
  */
 export async function noteSettledForEmptyGistRetry(every = 3) {
   const meta = SillyTavern.getContext().chatMetadata;
@@ -252,8 +252,8 @@ export async function noteSettledForEmptyGistRetry(every = 3) {
 }
 
 /**
- * Найти все запечатанные арки с пустым summaryGist и поставить их в очередь
- * на переизвлечение (force=true, обходит lite-гейт). Возвращает число найденных.
+ * Find all sealed arcs with an empty summaryGist and enqueue them for
+ * re-extraction (force=true, bypasses the lite gate). Returns the count found.
  */
 export async function retryEmptyGistArcs() {
   const { getSealedArcs, arcText } = await import('./arc-segmenter.js');

@@ -1,15 +1,15 @@
-// i18n.js — самодостаточная локализация EN/RU. Лист-модуль: НИЧЕГО из расширения
-// не импортирует (читает только localStorage + getContext) → импортится кем угодно
-// без риска цикла. Намеренно НЕ зависим от ST-i18n (хрупкий deep-import); вместо
-// этого следуем выбранному в ST языку (localStorage['language']) и даём явный
-// per-extension override (settings.uiLanguage). Деградация: любая ошибка → 'en'.
+// i18n.js — self-contained EN/RU localization. Leaf module: imports NOTHING from
+// the extension (reads only localStorage + getContext), so anyone can import it
+// without cycle risk. Deliberately does NOT depend on ST-i18n (fragile deep-import);
+// instead it follows the language selected in ST (localStorage['language']) with an
+// explicit per-extension override (settings.uiLanguage). On any error → 'en'.
 //
-// Использование:
-//   t('toast.arcSealed', { id })          → строка для toastr / шаблонов
-//   <span data-cl-i18n="set.enable">Enable</span> + localize(root)  → статичный HTML
+// Usage:
+//   t('toast.arcSealed', { id })          → string for toastr / templates
+//   <span data-cl-i18n="set.enable">Enable</span> + localize(root)  → static HTML
 //
-// Атрибут НАШ — data-cl-i18n (ST-обсервер слушает только data-i18n → нет конфликта).
-// Английский текст оставляем в HTML как видимый фолбэк, если JS-i18n не отработал.
+// Our attribute is data-cl-i18n (ST's observer watches only data-i18n → no conflict).
+// English text stays in the HTML as a visible fallback if JS-i18n didn't run.
 
 const STRINGS = {
   en: {
@@ -200,6 +200,8 @@ const STRINGS = {
     'ui.title.bufKind': 'Kind: goal · trait/feeling · lore (fact) · thread (fleeting)',
     'ui.title.bufImp': 'Importance: 1 fleeting · 2 normal · 3 enduring constant (never decays for trait/lore)',
     'ui.title.bufWeight': 'Current weight (fades over time, refreshed when mentioned)',
+    'ui.title.bufEditLocked': 'Thought buffer is view-only. Click to enable editing.',
+    'ui.title.bufEditUnlocked': 'Editing enabled. Click to lock.',
     'ui.bufkind.goal': 'goal',
     'ui.bufkind.trait': 'trait',
     'ui.bufkind.lore': 'lore',
@@ -225,6 +227,7 @@ const STRINGS = {
     'ui.legend.remove': 'Delete',
     'ui.legend.modes': 'Injection mode: always · sometimes resurfaces · only when relevant',
     'ui.legend.significance': 'Arc significance: high · medium · low',
+    'ui.legend.bufImp': 'Thought importance: 1 fleeting · 2 normal · 3 enduring constant (never decays)',
     'ui.legend.restore': 'Restore point / roll back to it',
     'ui.label.arc': 'arc ${id}',
     'ui.status.arcs': '${n} arcs',
@@ -318,7 +321,7 @@ const STRINGS = {
     'cmd.chat': 'Toggle Chaotic Lorebooks on/off for the current chat',
     'cmd.backfill': 'One-time catch-up: process the existing chat history',
 
-    // --- backfill (поздно-включённый чат) ---
+    // --- backfill (chat enabled late) ---
     'backfill.banner': '${n} messages predate Chaotic Lorebooks — process them?',
     'backfill.popup.title': 'Catch up on this chat',
     'backfill.popup.body': '${n} historical messages (~${arcs} arc(s)) are not yet in memory. How should we process them?',
@@ -523,6 +526,8 @@ const STRINGS = {
     'ui.title.bufKind': 'Вид: goal (цель) · trait (чувство/черта) · lore (факт) · thread (мимолётное)',
     'ui.title.bufImp': 'Важность: 1 мимолётно · 2 обычно · 3 устойчивая константа (для trait/lore не затухает)',
     'ui.title.bufWeight': 'Текущий вес (со временем гаснет, обновляется при упоминании)',
+    'ui.title.bufEditLocked': 'Буфер мыслей только для просмотра. Нажмите, чтобы разрешить редактирование.',
+    'ui.title.bufEditUnlocked': 'Редактирование включено. Нажмите, чтобы заблокировать.',
     'ui.bufkind.goal': 'цель',
     'ui.bufkind.trait': 'черта',
     'ui.bufkind.lore': 'факт',
@@ -548,6 +553,7 @@ const STRINGS = {
     'ui.legend.remove': 'Удалить',
     'ui.legend.modes': 'Режим инъекции: всегда · иногда всплывает · только когда уместно',
     'ui.legend.significance': 'Значимость арки: высокая · средняя · низкая',
+    'ui.legend.bufImp': 'Важность мысли: 1 мимолётно · 2 обычно · 3 устойчивая константа (не затухает)',
     'ui.legend.restore': 'Точка восстановления / откатиться к ней',
     'ui.label.arc': 'арка ${id}',
     'ui.status.arcs': 'арок: ${n}',
@@ -641,7 +647,7 @@ const STRINGS = {
     'cmd.chat': 'Включить/выключить Chaotic Lorebooks для текущего чата',
     'cmd.backfill': 'Разовый catch-up: обработать существующую историю чата',
 
-    // --- backfill (поздно-включённый чат) ---
+    // --- backfill (chat enabled late) ---
     'backfill.banner': '${n} соо появилось до включения Chaotic Lorebooks — обработать?',
     'backfill.popup.title': 'Догнать этот чат',
     'backfill.popup.body': '${n} исторических соо (~${arcs} арк(и)) ещё нет в памяти. Как их обработать?',
@@ -660,12 +666,12 @@ const STRINGS = {
   },
 };
 
-/** Текущий язык: явный override (settings.uiLanguage) → иначе язык ST → 'en'. */
+/** Current language: explicit override (settings.uiLanguage) → else ST language → 'en'. */
 export function getLang() {
   try {
     const pref = SillyTavern.getContext()?.extensionSettings?.chaoticLorebooks?.uiLanguage;
     if (pref === 'en' || pref === 'ru') return pref;
-  } catch { /* getContext недоступен — падаем в авто-детект */ }
+  } catch { /* getContext unavailable — fall through to auto-detect */ }
   try {
     const l = String(localStorage.getItem('language') || navigator.language || 'en').toLowerCase();
     return l.startsWith('ru') ? 'ru' : 'en';
@@ -675,24 +681,24 @@ export function getLang() {
 }
 
 /**
- * Перевод по ключу + подстановка ${name} из vars. Фолбэк: текущий язык → en → сам ключ.
- * Безопасно вызывать внутри шаблонных строк и toastr.* (всегда возвращает строку).
+ * Translate by key + substitute ${name} from vars. Fallback: current lang → en → key itself.
+ * Safe to call inside template strings and toastr.* (always returns a string).
  */
 export function t(key, vars) {
   const lang = getLang();
   let s = (STRINGS[lang] && STRINGS[lang][key]) ?? STRINGS.en[key] ?? key;
   if (vars) s = s.replace(/\$\{(\w+)\}/g, (m, k) => (
-    // только СОБСТВЕННЫЙ непустой ключ: hasOwnProperty (не цепочка прототипов),
-    // и != null (иначе undefined/null подставились бы как слово «undefined»).
+    // only OWN non-empty key: hasOwnProperty (not the prototype chain), and
+    // != null (else undefined/null would be substituted as the word "undefined").
     Object.prototype.hasOwnProperty.call(vars, k) && vars[k] != null ? String(vars[k]) : m
   ));
   return s;
 }
 
 /**
- * Локализовать статичный HTML: пройтись по [data-cl-i18n] внутри root и подставить
- * перевод. Синтаксис значения: «key» → textContent; «[attr]key» → setAttribute
- * (можно несколько через ;). Идемпотентно (можно гонять после смены языка).
+ * Localize static HTML: walk [data-cl-i18n] within root and substitute the
+ * translation. Value syntax: "key" → textContent; "[attr]key" → setAttribute
+ * (multiple allowed, separated by ;). Idempotent (safe to re-run after a lang change).
  */
 export function localize(root) {
   try {
@@ -703,11 +709,11 @@ export function localize(root) {
       if (!spec) return;
       spec.split(';').forEach((part) => {
         const key = part.trim();
-        if (!key) return;                          // пустой кусок (напр. хвостовая «;») → не трогаем элемент
+        if (!key) return;                          // empty part (e.g. trailing ";") → leave element alone
         const m = key.match(/^\[(\S+)\](.+)$/);
         if (m) {
           el.setAttribute(m[1], t(m[2]));
-        } else if (!el.children.length) {           // bare-key пишем только в ЛИСТ (иначе затрём вложенные узлы)
+        } else if (!el.children.length) {           // bare-key only on a LEAF (else we'd clobber nested nodes)
           el.textContent = t(key);
         } else {
           console.warn('[ChaoticLorebooks] localize: skip non-leaf textContent for', key);

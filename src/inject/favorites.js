@@ -1,14 +1,14 @@
-// favorites.js — сохранённые соо (★) и ЦИТАТЫ (части соо). Единая модель с
-// РЕЖИМОМ ИНЪЕКЦИИ на каждый пункт. Хранение в chatMetadata. Всё 🟢
-// (кроме →lorebook и mode='relevant'+AI — помечено).
+// favorites.js — saved messages (★) and QUOTES (parts of messages). One model
+// with a per-item INJECTION MODE. Stored in chatMetadata. All 🟢
+// (except →lorebook and mode='relevant'+AI — marked).
 //
-// Модель пункта:
+// Item model:
 //   { id, mesIndex, text, kind:'message'|'quote',
-//     mode:'permanent'|'chance'|'relevant',   // как попадает в инъекцию
+//     mode:'permanent'|'chance'|'relevant',   // how it enters the injection
 //     enabled, pinned, addedAt }
-//   permanent — всегда после основного промпта (как акцент)
-//   chance    — с шансом всплывает как воспоминание (глубина 3-4)
-//   relevant  — инжектится, когда релевантно сцене (алгоритм; v1: решает ИИ)
+//   permanent — always after the main prompt (as emphasis)
+//   chance    — has a chance to resurface as a memory (depth 3-4)
+//   relevant  — injected when relevant to the scene (algorithm; v1: AI decides)
 
 import { getSettings } from '../core/settings.js';
 import { contentTokens, bm25Rank } from '../memory/text-relevance.js';
@@ -34,9 +34,9 @@ export function isFav(mesIndex) {
 }
 
 /**
- * Удалили соо в чате → сдвигаем mesIndex у пунктов выше, выкидываем привязанные
- * к удалённому или вышедшие за длину чата. Звезда сама перестанет светиться
- * после re-render.
+ * A message was deleted in chat → shift mesIndex of items above it, drop those
+ * tied to the deleted one or now past the chat length. The star stops glowing
+ * on its own after re-render.
  */
 export async function reconcileFavoritesAfterDelete(deletedIdx) {
   const favs = getFavorites();
@@ -55,7 +55,7 @@ export async function reconcileFavoritesAfterDelete(deletedIdx) {
   if (changed) await persist();
 }
 
-/** ★ на ВСЁ сообщение (toggle). Режим по умолчанию permanent. */
+/** ★ on the WHOLE message (toggle). Default mode permanent. */
 export async function toggleFavorite(mesIndex, text) {
   const favs = getFavorites();
   const idx = favs.findIndex((f) => f.mesIndex === mesIndex && f.kind !== 'quote');
@@ -68,7 +68,7 @@ export async function toggleFavorite(mesIndex, text) {
   return isFav(mesIndex);
 }
 
-/** Добавить ВЫДЕЛЕННУЮ цитату (часть соо). Аддитивно. Режим по умолчанию из настроек. */
+/** Add a SELECTED quote (part of a message). Additive. Default mode from settings. */
 export async function addQuote(mesIndex, text, mode) {
   if (!text?.trim()) return;
   const def = getSettings().quotes?.defaultMode || 'chance';
@@ -84,7 +84,7 @@ function mk(mesIndex, text, kind, mode) {
   };
 }
 
-// --- CRUD редактора ---
+// --- Editor CRUD ---
 export async function editText(id, text) { const f = find(id); if (f) { f.text = text; await persist(); } }
 export async function setEnabled(id, on) { const f = find(id); if (f) { f.enabled = !!on; await persist(); } }
 export async function setPinned(id, on) { const f = find(id); if (f) { f.pinned = !!on; await persist(); } }
@@ -95,14 +95,14 @@ export async function removeFavorite(id) {
 }
 function find(id) { return getFavorites().find((x) => x.id === id); }
 
-/** Промоут в постоянную энтри лорбука (ярус «вечное»). ⚠FLAG: через lorebook-writer (Фаза 4). */
+/** Promote into a permanent lorebook entry ("eternal" tier). ⚠FLAG: via lorebook-writer (Phase 4). */
 export async function saveAsEntry(id) {
   const f = find(id); if (!f) return false;
   f.pinned = true; f.enabled = true; f.mode = 'permanent';
   await persist();
-  // Явное действие юзера → можно показать попап выбора книги (если askOnFirstUse).
+  // Explicit user action → may show the book-choice popup (if askOnFirstUse).
   await ensureBook(getSettings());
-  // Записываем как закреплённую (origin=user) энтри через единственную очередь.
+  // Write as a pinned (origin=user) entry through the single queue.
   try {
     const { enqueueWrite } = await import('../lorebook/lorebook-writer.js');
     await enqueueWrite({
@@ -119,20 +119,20 @@ export async function saveAsEntry(id) {
   return true;
 }
 
-// --- Выборки по режиму для инъектора ---
+// --- Mode-based selections for the injector ---
 const enabledByMode = (mode) => getFavorites().filter((f) => f.enabled && f.mode === mode);
 
-/** permanent → блок «★ Emphasize» (после основного промпта, глубина 1). */
+/** permanent → "★ Emphasize" block (after the main prompt, depth 1). */
 export function renderForInjection(maxItems) {
   const items = enabledByMode('permanent').slice(-maxItems).map((f) => `- ${f.text}`);
   if (!items.length) return '';
   return `[★ Emphasize — the user marked these as important; weave them in naturally when relevant]\n${items.join('\n')}`;
 }
 
-/** chance → кандидаты на всплытие как воспоминание (глубина 3-4). */
+/** chance → candidates to resurface as a memory (depth 3-4). */
 export function getResurfaceCandidates() { return enabledByMode('chance'); }
 
-/** relevant → пункты, релевантные сцене по BM25 (🟢, без LLM; v1: решает ИИ). */
+/** relevant → items relevant to the scene by BM25 (🟢, no LLM; v1: AI decides). */
 export function getRelevantInjection() {
   const items = enabledByMode('relevant');
   if (!items.length) return '';
@@ -142,15 +142,15 @@ export function getRelevantInjection() {
   return `[Recalled — relevant to the current moment]\n${ranked.map((r) => `- ${r.doc.f.text}`).join('\n')}`;
 }
 
-/** Кандидаты для ресёрфинга по BM25 (предпочитаем цитаты). Возвращает текст или null. */
+/** Resurfacing candidates by BM25 (prefer quotes). Returns text or null. */
 export function pickResurfaceText() {
   const items = enabledByMode('chance');
   if (!items.length) return null;
   const docs = items.map((f) => ({ f, tokens: contentTokens(f.text) }));
   let ranked = bm25Rank(recentQueryTokens(), docs).filter((r) => r.score > 0);
-  if (!ranked.length) ranked = docs.map((d) => ({ doc: d, score: 0 })); // нет совпадений — любой
+  if (!ranked.length) ranked = docs.map((d) => ({ doc: d, score: 0 })); // no matches — any
   const quotes = ranked.filter((r) => r.doc.f.kind === 'quote');
   const pool = quotes.length ? quotes : ranked;
-  const top = pool.slice(0, 3);                       // немного рандома среди лучших
+  const top = pool.slice(0, 3);                       // a bit of randomness among the best
   return top[Math.floor(Math.random() * top.length)].doc.f.text;
 }

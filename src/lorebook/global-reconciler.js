@@ -1,42 +1,43 @@
-// global-reconciler.js — изоляция памяти, когда наша книга активна ГЛОБАЛЬНО
-// (SPEC §2, последний срез Фазы D). Всё 🟢. Зеркало branch-guard, но для другой
-// угрозы.
+// global-reconciler.js — memory isolation when our book is active GLOBALLY
+// (SPEC §2, last slice of Phase D). All 🟢. Mirror of branch-guard, for a
+// different threat.
 //
-// Проблема: расширение пишет память в книгу, привязанную к ТЕКУЩЕМУ чату
-// (chat_metadata.world_info). Но в ST есть и ГЛОБАЛЬНО активные книги
-// (мультиселект «Active World(s)» = selected_world_info), которые применяются ко
-// ВСЕМ чатам. Если книга, в которую мы пишем, оказалась ещё и в этом глобальном
-// наборе — фоновый писатель льёт память ЭТОГО чата во все остальные (перекрёстное
-// заражение). Та же беда, что branch-guard решает для форка, но в глобальном масштабе.
+// Problem: the extension writes memory into the book bound to the CURRENT chat
+// (chat_metadata.world_info). But ST also has GLOBALLY active books (the "Active
+// World(s)" multiselect = selected_world_info) applied to ALL chats. If the book
+// we write to is also in that global set, the background writer pours THIS chat's
+// memory into every other chat (cross-contamination). Same issue branch-guard
+// handles for forks, but at global scale.
 //
-// Решение: при входе в чат, если привязанная книга активна глобально, предложить:
-//   • Copy — приватная копия этой книги для текущего чата (ребинд) → автоматика
-//     пишет только в копию, глобальный оригинал не трогается;
-//   • Disable global — убрать книгу из глобального набора (через нативный
-//     обработчик ST), чтобы здесь она активировалась лишь как привязка чата;
-//   • Keep — оставить как есть.
-// Без LLM, во всех режимах, идемпотентно, не спрашивает дважды про один чат.
+// Solution: on entering a chat, if the bound book is globally active, offer:
+//   • Copy — a private copy of this book for the current chat (rebind) →
+//     automation writes only into the copy, the global original is untouched;
+//   • Disable global — remove the book from the global set (via ST's native
+//     handler) so here it activates only as the chat binding;
+//   • Keep — leave as is.
+// No LLM, all modes, idempotent, never asks twice for the same chat.
 //
-// Сверено с ST (public/scripts/world-info.js):
-//   - глобальный набор = selected_world_info (НЕ на getContext) ↔ мультиселект
-//     #world_info; источник истины для чтения — выбранные <option> этого селекта.
-//   - снять книгу с глобали штатно: снять <option> в #world_info и .trigger('change')
-//     → ST сам обновит selected_world_info, сохранит и эмитнет WORLDINFO_SETTINGS_UPDATED.
-//   - копия книги делается через lorebook-service.forkBook (он же ребиндит чат).
+// Checked against ST (public/scripts/world-info.js):
+//   - global set = selected_world_info (NOT on getContext) ↔ #world_info
+//     multiselect; source of truth for reading is that select's checked <option>s.
+//   - remove a book from global properly: deselect its <option> in #world_info and
+//     .trigger('change') → ST updates selected_world_info, saves, and emits
+//     WORLDINFO_SETTINGS_UPDATED.
+//   - the book copy is made via lorebook-service.forkBook (which also rebinds the chat).
 
 import { getSettings, saveSettings } from '../core/settings.js';
 import { getBoundBookName, forkBook, deriveBranchBookName } from './lorebook-service.js';
 import { log as logActivity } from '../memory/activity-log.js';
 import { t } from '../core/i18n.js';
 
-const HANDLED_CAP = 200;   // сколько разобранных чатов помним (rolling)
+const HANDLED_CAP = 200;   // how many handled chats we remember (rolling)
 
 function ctx() { return SillyTavern.getContext(); }
 function currentChatId() { try { return ctx().getCurrentChatId?.() ?? null; } catch { return null; } }
 
-// --- Глобальный handled-set (в настройках, НЕ в chatMetadata) ---
-// Как у branch-guard: в extension_settings → не копируется форком чата, поэтому
-// форк уже разобранного чата всё равно спросит (нет ложного «уже обработано»).
+// --- Global handled-set (in settings, NOT in chatMetadata) ---
+// Like branch-guard: in extension_settings → not copied by a chat fork, so a
+// fork of an already-handled chat still asks (no false "already handled").
 function handledList() {
   const g = getSettings().globalReconciler;
   if (!Array.isArray(g._handled)) g._handled = [];
@@ -52,8 +53,8 @@ function markHandled(chatId) {
   saveSettings();
 }
 
-// Имена книг, выбранных в глобальном мультиселекте #world_info (текст <option>).
-// Версионно-устойчиво (DOM — пользовательский источник истины); нет селекта → [].
+// Book names selected in the global #world_info multiselect (<option> text).
+// Version-robust (DOM is the user's source of truth); no select → [].
 function globalActiveBooks() {
   try {
     const opts = document.querySelectorAll('#world_info option:checked');
@@ -64,8 +65,8 @@ function globalActiveBooks() {
 }
 
 /**
- * Состояние глобального пересечения. boundIsGlobal === false → вызыватели no-op
- * («нет глобальной книги → всё работает», SPEC §2).
+ * Global-overlap state. boundIsGlobal === false → callers no-op
+ * ("no global book → everything works", SPEC §2).
  * @returns {{ boundIsGlobal: boolean, book: string|null, globals: string[] }}
  */
 export function scanGlobal() {
@@ -75,9 +76,9 @@ export function scanGlobal() {
 }
 
 /**
- * Copy-on-use: форкнуть привязанную книгу в приватную копию для текущего чата и
- * перебиндить. Автоматика теперь пишет только в копию (вне глобали) → заражение
- * исчезает. Возвращает true при успехе.
+ * Copy-on-use: fork the bound book into a private copy for the current chat and
+ * rebind. Automation now writes only into the copy (out of global) →
+ * contamination is gone. Returns true on success.
  */
 export async function copyOnUse(book) {
   const src = book || getBoundBookName();
@@ -93,10 +94,10 @@ export async function copyOnUse(book) {
 }
 
 /**
- * Убрать книгу из ГЛОБАЛЬНО активного набора через штатный обработчик ST:
- * снять её <option> в #world_info и эмитнуть change (ST сам сохранит + обновит
- * selected_world_info). Деградация: селект/опция не найдены → инструктивный тост.
- * Возвращает true, если удалось снять программно.
+ * Remove a book from the GLOBALLY active set via ST's native handler: deselect
+ * its <option> in #world_info and emit change (ST saves + updates
+ * selected_world_info). Degradation: select/option missing → instructional toast.
+ * Returns true if removed programmatically.
  */
 export async function suggestDisable(book) {
   const name = book || getBoundBookName();
@@ -106,7 +107,7 @@ export async function suggestDisable(book) {
     const opt = sel && [...sel.options].find((o) => (o.textContent || '').trim() === name);
     if (sel && opt && opt.selected) {
       opt.selected = false;
-      // jQuery .trigger('change') — ST слушает именно его (select2); фолбэк — нативное событие.
+      // jQuery .trigger('change') — what ST listens for (select2); fallback to native event.
       if (globalThis.jQuery) globalThis.jQuery(sel).trigger('change');
       else sel.dispatchEvent(new Event('change', { bubbles: true }));
       globalThis.toastr?.success?.(t('toast.global.disableOk', { name }));
@@ -116,12 +117,12 @@ export async function suggestDisable(book) {
   } catch (e) {
     console.warn('[ChaoticLorebooks] suggestDisable failed:', e);
   }
-  // Не смогли снять программно — подскажем, как это сделать вручную.
+  // Couldn't remove programmatically — hint how to do it manually.
   globalThis.toastr?.info?.(t('toast.global.disableManual', { name }));
   return false;
 }
 
-// Минимальный экранировщик (имена книг короткие; DOMPurify тут не нужен).
+// Minimal HTML escaper (book names are short; DOMPurify not needed here).
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (ch) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
@@ -129,9 +130,8 @@ function escapeHtml(s) {
 }
 
 /**
- * Попап выбора действия. Строим РЕАЛЬНЫЙ DOM (callGenericPopup может его
- * изолировать — держим ссылки в замыкании). Возвращает
- * 'copy'|'disable'|'share' | null (отмена).
+ * Action-choice popup. Build a REAL DOM (callGenericPopup may isolate it — keep
+ * refs in the closure). Returns 'copy'|'disable'|'share' | null (cancel).
  */
 async function globalPopup(book) {
   const c = ctx();
@@ -166,52 +166,52 @@ async function globalPopup(book) {
     return null;
   }
   const affirmative = POPUP_RESULT.AFFIRMATIVE ?? 1;
-  if (res !== affirmative && res !== true) return null;       // отмена → не помечаем handled
+  if (res !== affirmative && res !== true) return null;       // cancel → don't mark handled
 
   return wrap.querySelector('input[name="cl-global"]:checked')?.value || 'copy';
 }
 
-/** Применить выбранное действие (кроме 'share' — там ничего не делаем). */
+/** Apply the chosen action (except 'share' — do nothing). */
 async function applyAction(action, book) {
   if (action === 'copy') return copyOnUse(book);
   if (action === 'disable') return suggestDisable(book);
-  return false;   // 'share' / неизвестное — оставить как есть
+  return false;   // 'share' / unknown — leave as is
 }
 
 /**
- * Вызывается на CHAT_CHANGED (после branch-guard). Если книга, в которую пишет
- * текущий чат, активна глобально — предлагает изолировать память. Полностью
- * защищено: любая ошибка → no-op (смену чата не блокируем).
+ * Called on CHAT_CHANGED (after branch-guard). If the book the current chat
+ * writes to is globally active, offer to isolate the memory. Fully guarded: any
+ * error → no-op (never block the chat switch).
  */
 export async function maybeHandleGlobal() {
   try {
     const s = getSettings();
-    if (s.globalReconciler?.enabled === false) return;     // фича выключена
+    if (s.globalReconciler?.enabled === false) return;     // feature off
 
     const { boundIsGlobal, book } = scanGlobal();
-    if (!boundIsGlobal) return;                            // нет пересечения → всё ок
+    if (!boundIsGlobal) return;                            // no overlap → all good
 
     const chatId = currentChatId();
-    if (isHandled(chatId)) return;                         // уже разбирались с этим чатом
+    if (isHandled(chatId)) return;                         // already handled this chat
 
     const action = s.globalReconciler?.defaultAction || 'copy';
 
-    if (s.globalReconciler?.askOnDetected === false) {     // без вопроса — по defaultAction
+    if (s.globalReconciler?.askOnDetected === false) {     // no prompt — use defaultAction
       await applyAction(action, book);
       markHandled(chatId);
       return;
     }
 
     const choice = await globalPopup(book);
-    if (!choice) return;                                  // отмена → спросим снова при след. входе
+    if (!choice) return;                                  // cancel → ask again next entry
     await applyAction(choice, book);
-    markHandled(chatId);                                  // любое решение → больше не спрашиваем
+    markHandled(chatId);                                  // any decision → stop asking
   } catch (e) {
     console.warn('[ChaoticLorebooks] maybeHandleGlobal error:', e);
   }
 }
 
-/** Debug/тест: забыть, что чат обработан (чтобы попап показался снова). */
+/** Debug/test: forget that a chat was handled (so the popup shows again). */
 export function resetHandledForChat(chatId) {
   const list = handledList();
   const i = list.indexOf(chatId ?? currentChatId());

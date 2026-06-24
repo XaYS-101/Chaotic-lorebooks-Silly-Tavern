@@ -1,9 +1,10 @@
-/* Chaotic Lorebooks — стили. Цвета только из темы ST (var(--SmartTheme...)),
-   ничего не хардкодим. Mobile-first: на узком экране дровер во всю ширину. */
+/* Chaotic Lorebooks styles. Colors come only from the ST theme
+   (var(--SmartTheme...)), nothing hardcoded. Mobile-first: drawer goes
+   full-width on narrow screens. */
 
 .cl-hidden { display: none !important; }
 
-/* Попап выбора книги: ряды «радио + контрол» в линию, mobile-friendly. */
+/* Book-picker popup: "radio + control" rows laid out inline, mobile-friendly. */
 .cl-choose .cl-choose-row {
   display: flex;
   align-items: center;
@@ -33,12 +34,12 @@
 }
 .cl-choose input[type="radio"] { accent-color: var(--SmartThemeQuoteColor, #8ab4f8); }
 
-/* Звезда избранного на сообщении */
+/* Favorite star on a message */
 .cl-star {
   cursor: pointer;
   opacity: 0.35;
   font-size: 1em;
-  padding: 4px;            /* тач-таргет */
+  padding: 4px;            /* touch target */
   min-width: 28px;
   text-align: center;
   color: var(--SmartThemeBodyColor);
@@ -47,13 +48,13 @@
 .cl-star:hover { opacity: 0.7; }
 .cl-star-on { opacity: 1; color: var(--SmartThemeQuoteColor, gold); }
 
-/* Выезжающее дерево */
+/* Slide-out tree drawer */
 .cl-drawer {
   position: fixed;
   top: 0; right: 0;
   height: 100vh;
   width: 360px;
-  max-width: calc(100vw - 32px);     /* мобайл: почти во всю ширину */
+  max-width: calc(100vw - 32px);     /* mobile: nearly full width */
   background: var(--SmartThemeBlurTintColor, var(--black50a, rgba(0,0,0,0.85)));
   color: var(--SmartThemeBodyColor);
   border-left: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
@@ -87,13 +88,13 @@
 .cl-close, .cl-help {
   background: none; border: none; cursor: pointer;
   color: var(--SmartThemeBodyColor); font-size: 1.1em;
-  min-width: 40px; min-height: 40px;     /* тач-таргет */
+  min-width: 40px; min-height: 40px;     /* touch target */
 }
 .cl-help {
   border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.25));
   border-radius: 50%; min-width: 32px; min-height: 32px; font-weight: 700;
 }
-/* Легенда обозначений (попап) */
+/* Symbol legend (popup) */
 .cl-legend-row { display: flex; gap: 10px; align-items: baseline; margin: 6px 0; }
 .cl-legend-sym { min-width: 90px; font-size: 1.05em; }
 
@@ -113,7 +114,7 @@
 .cl-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
 .cl-empty { opacity: 0.6; font-size: 0.9em; }
 
-/* Узлы дерева */
+/* Tree nodes */
 .cl-node { margin: 4px 0; }
 .cl-node > summary {
   cursor: pointer; padding: 8px 4px; min-height: 36px;
@@ -127,7 +128,7 @@
   margin-left: 8px;
 }
 
-/* Добавление заметки */
+/* Add a note */
 .cl-addnote { display: flex; gap: 6px; margin-top: 12px; }
 .cl-addnote input {
   flex: 1; padding: 10px; min-height: 40px;
@@ -142,7 +143,7 @@
   border: none; border-radius: 6px;
 }
 
-/* Пункты буфера и избранного */
+/* Buffer and favorite items */
 .cl-bufitem, .cl-favitem {
   display: flex; align-items: center; gap: 8px;
   padding: 8px; margin: 4px 0;
@@ -154,7 +155,7 @@
 .cl-rm { min-width: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--SmartThemeBodyColor); opacity: 0.6; }
 .cl-rm:hover { opacity: 1; }
 
-/* Редактируемый пункт буфера мыслей (вкладка Thoughts) — колоночный, как Saved. */
+/* Editable thought-buffer item (Thoughts tab) — column layout, like Saved. */
 .cl-bufitem { flex-direction: column; align-items: stretch; gap: 6px; }
 .cl-buf-text {
   width: 100%; min-height: 40px; max-height: 40vh; resize: vertical;
@@ -167,11 +168,40 @@
 .cl-buf-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
 .cl-buf-actions .cl-weight { margin-right: auto; }
 
+/* Thoughts-tab toolbar: 🔒/🔓 lock toggle */
+.cl-buf-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.cl-edit-toggle {
+  min-width: 36px; min-height: 36px; cursor: pointer;
+  background: var(--black30a, rgba(255,255,255,0.08));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+  border-radius: 6px;
+  font-size: 1.1em;
+}
+.cl-edit-toggle:hover { background: var(--black50a, rgba(255,255,255,0.14)); }
+
+/* Read-only textarea — subtle visual cue */
+.cl-buf-text:read-only {
+  opacity: 0.85;
+  cursor: default;
+  border-style: dashed;
+}
+
+/* Disabled selects in buffer actions */
+.cl-buf-actions select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Extensions-menu button (label on one line) */
 #cl-wand { cursor: pointer; white-space: nowrap; }
 #cl-wand > span { white-space: nowrap; }
 
-/* Редактор сохранённых вырезок (вкладка Saved) */
+/* Saved-snippets editor (Saved tab) */
 .cl-savedrow {
   display: flex; flex-direction: column; gap: 6px;
   padding: 8px; margin: 6px 0; border-radius: 8px;
@@ -187,7 +217,7 @@
   border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
   border-radius: 6px; padding: 6px; font-size: 0.88em;
 }
-/* Иконка типа (★ соо · ❝ цитата) — одинаковый размер, не «мелкий конвертик». */
+/* Kind icon (★ message · ❝ quote) — uniform size, no tiny envelope. */
 .cl-kind { font-size: 1em; opacity: 0.7; min-width: 20px; text-align: center; }
 .cl-saved-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .cl-saved-actions button {
@@ -200,11 +230,11 @@
   border-color: var(--SmartThemeQuoteColor, gold);
 }
 
-/* Пульс звезды при сохранении цитаты */
+/* Star pulse when a quote is saved */
 .cl-star-pulse { animation: cl-pulse 0.4s ease; }
 @keyframes cl-pulse { 0%{transform:scale(1)} 50%{transform:scale(1.6); color:var(--SmartThemeQuoteColor,gold)} 100%{transform:scale(1)} }
 
-/* Плавающая кнопка «сохранить цитату» у выделения (поверх дровера, тач-таргет) */
+/* Floating "save quote" button near a selection (above the drawer, touch target) */
 .cl-quote-fab {
   position: fixed; z-index: 2147483000;
   padding: 10px 14px; min-height: 44px; min-width: 44px; cursor: pointer;
@@ -219,7 +249,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Backfill-баннер: «N соо ждут обработки → Процесс». Лежит у самой шапки дровера. */
+/* Backfill banner: "N messages waiting → Process". Sits at the drawer header. */
 .cl-backfill-banner {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; margin: 6px 0 10px;
@@ -237,7 +267,7 @@
 .cl-backfill-banner-btn:hover { filter: brightness(1.1); }
 .cl-backfill-warn { font-size: 0.82em; opacity: 0.75; margin-top: 6px; }
 
-/* Селектор режима инъекции в редакторе */
+/* Injection-mode selector in the editor */
 .cl-mode {
   min-height: 36px; border-radius: 6px; padding: 0 4px;
   background: var(--black30a, rgba(255,255,255,0.08));
@@ -245,16 +275,16 @@
   border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
 }
 
-/* ===== Фаза B — статус, секции, чипы, воспоминания, арки ===== */
+/* ===== Phase B — status, sections, chips, recollections, arcs ===== */
 
-/* Компактная строка статуса под шапкой */
+/* Compact status line below the header */
 .cl-status {
   display: flex; flex-wrap: wrap; gap: 4px 10px;
   padding: 6px 14px; font-size: 0.78em; opacity: 0.75;
   border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
 }
 .cl-status span { white-space: nowrap; }
-/* Пер-чатовый тумблер (▶ активно / ⏸ выключено для чата) */
+/* Per-chat toggle (▶ active / ⏸ disabled for this chat) */
 .cl-chat-pill {
   cursor: pointer; user-select: none; opacity: 0.9;
   padding: 0 4px; border-radius: 4px;
@@ -262,7 +292,7 @@
 .cl-chat-pill:hover { opacity: 1; background: var(--black30a, rgba(255,255,255,0.08)); }
 .cl-chat-pill.cl-chat-off { opacity: 0.5; }
 
-/* Свёртываемые секции вкладки Memory */
+/* Collapsible sections of the Memory tab */
 .cl-section { margin: 6px 0; }
 .cl-section > summary {
   cursor: pointer; padding: 10px 6px; min-height: 40px;
@@ -272,7 +302,7 @@
 .cl-section > summary:hover { background: var(--black50a, rgba(255,255,255,0.1)); }
 .cl-section-body { padding: 6px 2px 2px; }
 
-/* Фильтр-чипы во вкладке Saved */
+/* Filter chips in the Saved tab */
 .cl-chips { display: flex; gap: 6px; margin-bottom: 8px; }
 .cl-chip {
   flex: 1; min-height: 34px; cursor: pointer; padding: 4px 8px;
@@ -285,7 +315,7 @@
   background: var(--black50a, rgba(255,255,255,0.12));
 }
 
-/* Воспоминания (ярус 2) */
+/* Recollections (tier 2) */
 .cl-gist {
   padding: 8px; margin: 6px 0; border-radius: 8px;
   background: var(--black30a, rgba(255,255,255,0.05));
@@ -305,7 +335,7 @@
   color: var(--SmartThemeBodyColor); border: 1px solid transparent; border-radius: 6px;
 }
 
-/* Арки */
+/* Arcs */
 .cl-arc-controls { display: flex; gap: 6px; margin-bottom: 8px; }
 .cl-arc-controls button {
   flex: 1; min-height: 36px; cursor: pointer;
@@ -334,7 +364,7 @@
   background: var(--SmartThemeQuoteColor, #c9803a); color: #fff;
 }
 
-/* Фаза C — бейдж значимости арки + секция дрейфа */
+/* Phase C — arc-significance badge + drift section */
 .cl-sig { font-size: 0.9em; }
 .cl-sig-hi { color: var(--SmartThemeQuoteColor, #e0b341); }
 .cl-sig-lo { opacity: 0.4; }
@@ -348,7 +378,7 @@
 .cl-drift-text > div:first-child { word-break: break-word; }
 .cl-drift-detail { opacity: 0.6; font-size: 0.92em; margin-top: 2px; }
 
-/* Фаза D — бюджет контекста: индикатор здоровья памяти + разбивка по ярусам */
+/* Phase D — context budget: memory-health indicator + per-tier breakdown */
 .cl-budget { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
 .cl-budget-bar {
   flex: 1; height: 8px; border-radius: 4px; overflow: hidden;
@@ -367,9 +397,9 @@
 }
 .cl-budget-row.cl-budget-over { color: var(--SmartThemeQuoteColor, #d46b5b); opacity: 0.85; }
 
-/* Контролы панели настроек берут цвета ИЗ ТЕМЫ ST (фикс «белый текст на белом»:
-   у голых input/select был дефолтный белый фон браузера, а текст — светлый цвет
-   темы → невидимо). Цвета только из var(--SmartTheme...), как и везде. */
+/* Settings-panel controls take colors FROM the ST theme (fixes "white text on
+   white": bare input/select had the browser's default white background while the
+   text was a light theme color → invisible). Colors only from var(--SmartTheme...). */
 .chaotic-lorebooks-settings input[type="number"],
 .chaotic-lorebooks-settings input[type="text"],
 .chaotic-lorebooks-settings input[type="password"],
@@ -381,17 +411,17 @@
   color: var(--SmartThemeBodyColor);
   border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
 }
-/* Список опций селекта — иначе часть браузеров рисует его в системных (белых) цветах */
+/* Select option list — otherwise some browsers render it in system (white) colors */
 .chaotic-lorebooks-settings select option {
   background: var(--SmartThemeBlurTintColor, #222);
   color: var(--SmartThemeBodyColor);
 }
-/* Раскладка обычных лейблов: подпись над полем. checkbox_label НЕ трогаем
-   (ST рисует их инлайн-флексом — оставляем как есть). */
+/* Layout for normal labels: caption above the field. Leave checkbox_label alone
+   (ST renders those as inline flex — keep as is). */
 .chaotic-lorebooks-settings label:not(.checkbox_label) { display: block; margin: 8px 0; }
 .chaotic-lorebooks-settings label:not(.checkbox_label) > span { display: block; margin-bottom: 3px; opacity: 0.9; }
 
-/* Ряд кнопок (Refresh / New profile) */
+/* Button row (Refresh / New profile) */
 .chaotic-lorebooks-settings .cl-row { display: flex; gap: 8px; margin: 6px 0; flex-wrap: wrap; align-items: center; }
 .chaotic-lorebooks-settings .cl-row select { flex: 1 1 140px; }
 
@@ -402,7 +432,7 @@
   background: var(--black30a, rgba(255,255,255,0.04));
 }
 
-/* Опасная зона — акцент из темы */
+/* Danger zone — accent from the theme */
 .chaotic-lorebooks-settings .cl-danger > summary { color: var(--SmartThemeQuoteColor, #e0666b); }
 .chaotic-lorebooks-settings .cl-danger-scope { opacity: 0.7; }
 .chaotic-lorebooks-settings .cl-danger-btn {
@@ -411,7 +441,7 @@
   border-color: var(--SmartThemeQuoteColor, #e0666b);
 }
 
-/* Свёрнутые под-секции в панели настроек Advanced (анти-«простыня») */
+/* Collapsed sub-sections in the Advanced settings panel (avoids a wall of text) */
 .chaotic-lorebooks-settings .cl-sub { margin: 4px 0; }
 .chaotic-lorebooks-settings .cl-sub > summary {
   cursor: pointer; padding: 8px 4px; min-height: 36px; font-weight: 600;

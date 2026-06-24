@@ -1,19 +1,19 @@
-// deep-extractor.js — глубокое извлечение поверх arc-summary (Фаза C).
-// Три задачи (SPEC §7 Фаза C, §0.4 «код-префильтр → дешёвая ИИ только на спорное»):
-//   1) АНТИ-ГАЛЛЮЦИНАЦИЯ: строгий allow-list — триплет входит в граф ТОЛЬКО если
-//      обе сущности реально есть в сцене ИЛИ уже узлы графа. Выдуманные сущности
-//      не плодят узлы (граф растёт по числу СУЩНОСТЕЙ — не должен раздуваться мусором).
-//   2) ЗНАЧИМОСТЬ арки 0..1 (чистый код, синхронно): важные арки → авто-пин и
-//      приоритет в recollection; «филлер» → быстрее гаснет. scoreSignificance()
-//      зовёт arc-summary ДО записи (чтобы влияло на tier/огрызок в нужный момент).
-//   3) ДРЕЙФ: дешёвый флаг на арку (drift-monitor) — противоречие установленному
-//      ребру. Только флаг, НИКОГДА не авто-удаление (юзер решает в UI).
+// deep-extractor.js — deep extraction on top of arc-summary (Phase C).
+// Three jobs (SPEC §7 Phase C, §0.4 "code prefilter → cheap AI only on the doubtful"):
+//   1) ANTI-HALLUCINATION: strict allow-list — a triple enters the graph ONLY if
+//      both entities really appear in the scene OR are already graph nodes. Invented
+//      entities create no nodes (the graph grows by ENTITY count — must not bloat with junk).
+//   2) SIGNIFICANCE of an arc 0..1 (pure code, synchronous): important arcs → auto-pin
+//      and recollection priority; "filler" → fades faster. scoreSignificance() is called
+//      by arc-summary BEFORE write (so it affects tier/gist at the right moment).
+//   3) DRIFT: a cheap per-arc flag (drift-monitor) — contradiction of an established
+//      edge. Flag only, NEVER auto-deletion (the user decides in the UI).
 //
-// extractArc() — обработчик job 'deep-extract' (autonomous): allow-list → дрейф →
-// graph-merge отфильтрованных триплетов. Полностью защищён: любой сбой → фолбэк на
-// прямой graph-merge сырых триплетов (данные не теряем).
+// extractArc() — handler for the 'deep-extract' job (autonomous): allow-list → drift →
+// graph-merge of filtered triples. Fully guarded: any failure → fallback to direct
+// graph-merge of raw triples (no data lost).
 //
-// Метки: 🟢 значимость/allow-list (код) · 🟡 дрейф (опц. LLM, через drift-monitor).
+// Markers: 🟢 significance/allow-list (code) · 🟡 drift (optional LLM, via drift-monitor).
 
 import { getSettings } from '../core/settings.js';
 import { loadGraph } from './knowledge-graph.js';
@@ -28,9 +28,9 @@ const DRIFT_CAP = 50;
 
 function ctx() { return SillyTavern.getContext(); }
 
-// --- Значимость (чистый код, синхронно) ---
+// --- Significance (pure code, synchronous) ---
 
-// Сильные отношения — арка, меняющая их, почти всегда значима.
+// Strong relations — an arc that changes one is almost always significant.
 const STRONG_REL = new Set(['love', 'hat', 'betray', 'kill', 'die', 'death', 'marry',
   'vow', 'owe', 'alli', 'enemi', 'trust', 'fear', 'leav', 'save', 'lose', 'reveal',
   'promis'].map((w) => stem(w)));
@@ -45,9 +45,9 @@ function hasStrongRelation(triples) {
 }
 
 /**
- * Оценить значимость арки в [0..1] — чистый код, без LLM. Учитывает сильные
- * отношения, число изменений-связей, новые сущности и длину. Триплеты с сущностями
- * вне сцены НЕ учитываем (чтобы галлюцинация не раздувала значимость).
+ * Score arc significance in [0..1] — pure code, no LLM. Considers strong relations,
+ * the number of changed relations, new entities, and length. Triples with off-scene
+ * entities are IGNORED (so hallucination can't inflate significance).
  * @param {{triples:Array, text:string, gist?:string}} input
  * @returns {number}
  */
@@ -56,20 +56,20 @@ export function scoreSignificance({ triples = [], text = '', gist = '' } = {}) {
   const real = (triples || []).filter((t) => t && t.from && t.to
     && sceneStems.has(entityKey(t.from)) && sceneStems.has(entityKey(t.to)));
 
-  let score = 0.3;                                    // база
+  let score = 0.3;                                    // base
   if (hasStrongRelation(real)) score += 0.3;
-  score += Math.min(0.2, real.length * 0.05);        // больше связей-изменений
+  score += Math.min(0.2, real.length * 0.05);        // more changed relations
   const newEntities = sceneStems.size;
-  score += Math.min(0.2, newEntities * 0.04);        // насыщенность сущностями
-  if (String(text).length < 400) score -= 0.2;       // совсем короткая арка — филлер
+  score += Math.min(0.2, newEntities * 0.04);        // entity density
+  if (String(text).length < 400) score -= 0.2;       // very short arc — filler
   if (!real.length && !String(gist).trim()) score -= 0.1;
 
   return Math.max(0, Math.min(1, score));
 }
 
-// --- Allow-list (анти-галлюцинация) ---
+// --- Allow-list (anti-hallucination) ---
 
-/** Множество стемов разрешённых сущностей: имена сцены ∪ узлы графа (+алиасы). */
+/** Set of allowed entity stems: scene names ∪ graph nodes (+aliases). */
 function buildAllowList(text, knownNodes) {
   const allow = new Set();
   for (const e of extractEntities(text, knownNodes)) allow.add(e.stem);
@@ -83,7 +83,7 @@ function buildAllowList(text, knownNodes) {
 
 function inAllow(allow, name) { return allow.has(entityKey(name)); }
 
-// --- Хранилище флагов дрейфа (chatMetadata, свой на чат) ---
+// --- Drift flag store (chatMetadata, per-chat) ---
 
 function driftStore() {
   const meta = ctx().chatMetadata;
@@ -93,16 +93,16 @@ function driftStore() {
 }
 async function persist() { try { await ctx().saveMetadata(); } catch { /* no-op */ } }
 
-/** Все флаги дрейфа (для UI). Нерешённые сначала, новые сверху. */
+/** All drift flags (for the UI). Unresolved first, newest on top. */
 export function getDriftFlags() {
   return driftStore().slice().sort((a, b) =>
     (Number(a.resolved) - Number(b.resolved)) || ((b.addedAt ?? 0) - (a.addedAt ?? 0)));
 }
 
 /**
- * Записать пачку флагов дрейфа в общую ленту (для дорогого аудита — Фаза D).
- * Дедуп по flagKey (тот же arcId|kind|from|to|rel не плодим, в т.ч. dismissed),
- * cap хранилища. Возвращает число РЕАЛЬНО добавленных. Единый владелец ленты — здесь.
+ * Append a batch of drift flags to the shared feed (for the expensive audit — Phase D).
+ * Dedup by flagKey (same arcId|kind|from|to|rel not duplicated, including dismissed),
+ * plus store cap. Returns the number ACTUALLY added. Sole owner of the feed lives here.
  * @param {Array<{arcId?,kind,from,to,rel,detail?,source?}>} flags
  * @returns {Promise<number>}
  */
@@ -118,7 +118,7 @@ export async function addDriftFlags(flags) {
   return added;
 }
 
-/** Снять флаг (Dismiss в UI). Помечаем resolved (не удаляем → не всплывёт снова). */
+/** Dismiss a flag (UI). Mark resolved (not deleted → won't resurface). */
 export async function resolveDriftFlag(id) {
   const f = driftStore().find((x) => x.id === id);
   if (!f) return false;
@@ -129,10 +129,10 @@ export async function resolveDriftFlag(id) {
 
 function flagKey(f) { return `${f.arcId}|${f.kind}|${entityKey(f.from)}|${entityKey(f.to)}|${stem(String(f.rel || '').toLowerCase())}`; }
 
-/** Записать флаг с дедупом: тот же (arcId,kind,from,to,rel) не плодим. */
+/** Append a flag with dedup: same (arcId,kind,from,to,rel) not duplicated. */
 function addFlag(arr, f) {
   const key = flagKey(f);
-  if (arr.some((x) => flagKey(x) === key)) return false;   // уже есть (в т.ч. dismissed)
+  if (arr.some((x) => flagKey(x) === key)) return false;   // already present (incl. dismissed)
   arr.push({
     id: `d_${f.arcId ?? 'x'}_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4).toString(36)}`,
     arcId: f.arcId ?? null,
@@ -145,17 +145,17 @@ function addFlag(arr, f) {
   return true;
 }
 
-/** Подрезать хранилище: сначала старые решённые, затем старые. */
+/** Trim the store: oldest resolved first, then oldest. */
 function capStore(arr) {
   if (arr.length <= DRIFT_CAP) return;
   arr.sort((a, b) => (Number(b.resolved) - Number(a.resolved)) || ((a.addedAt ?? 0) - (b.addedAt ?? 0)));
   arr.splice(0, arr.length - DRIFT_CAP);
 }
 
-// --- Главный обработчик job 'deep-extract' ---
+// --- Main 'deep-extract' job handler ---
 
 /**
- * Глубокое извлечение запечатанной арки. Ставится вместо 'graph-merge', когда
+ * Deep extraction of a sealed arc. Enqueued instead of 'graph-merge' when
  * deepExtract.enabled. payload = { arcId, triples, text, gist }.
  * @returns {Promise<boolean>}
  */
@@ -170,7 +170,7 @@ export async function extractArc(payload) {
     const known = Object.values(g.nodes || {});
     const allow = buildAllowList(text, known);
 
-    // 1) allow-list: оставляем только триплеты с РЕАЛЬНЫМИ сущностями.
+    // 1) allow-list: keep only triples with REAL entities.
     const kept = [];
     const drift = driftStore();
     let changed = false;
@@ -184,7 +184,7 @@ export async function extractArc(payload) {
         detail: `сущность вне сцены: ${ghost}` })) { changed = true; flagged++; }
     }
 
-    // 2) дрейф: спорные/противоречивые связи среди ОСТАВЛЕННЫХ.
+    // 2) drift: doubtful/contradictory relations among the KEPT triples.
     const suspectPairs = [];
     if (s.drift?.cheapEnabled !== false && kept.length) {
       const mode = s.deepExtract?.llmMode ?? 'hybrid';
@@ -200,7 +200,7 @@ export async function extractArc(payload) {
       logActivity({ kind: 'drift', arcId, detail: `${flagged} flag${flagged === 1 ? '' : 's'}` }).catch(() => {});
     }
 
-    // 3) мёрж очищенных триплетов в граф (suspectPairs → пометит рёбра [?]).
+    // 3) merge cleaned triples into the graph (suspectPairs → marks edges [?]).
     if (kept.length) await enqueue('graph-merge', { arcId, triples: kept, suspectPairs });
     return true;
   } catch (e) {
@@ -209,7 +209,7 @@ export async function extractArc(payload) {
       if (Array.isArray(triples) && triples.length && s.graph?.enabled !== false) {
         await enqueue('graph-merge', { arcId, triples });
       }
-    } catch { /* очередь недоступна — ничего не делаем */ }
+    } catch { /* queue unavailable — do nothing */ }
     return false;
   }
 }

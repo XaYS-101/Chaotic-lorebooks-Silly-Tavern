@@ -1,23 +1,23 @@
-// context-budget.js — глобальный потолок токенов на ВСЮ инъекцию памяти (Фаза D).
-// Сегодня каждый ярус режется своим бюджетом независимо (recollection.budget,
-// graph.budget; буфер/избранное — только по числу пунктов), общего лимита нет —
-// в сумме они могут превысить любой target. Этот модуль кладёт ОДИН жёсткий
-// потолок (contextBudget.target) поверх собранного «бандла памяти»: заполняет по
-// приоритету ярусов, при переполнении — condense (роняет целые строки/огрызки/рёбра,
-// НИКОГДА не режет середину фразы), роняет первыми ярусы с низшим приоритетом.
+// context-budget.js — global token ceiling for the ENTIRE memory injection (Phase D).
+// Today each tier is trimmed by its own budget independently (recollection.budget,
+// graph.budget; buffer/favorites — only by item count), with no shared limit, so
+// together they can exceed any target. This module imposes ONE hard ceiling
+// (contextBudget.target) over the assembled "memory bundle": fills by tier priority,
+// on overflow condenses (drops whole lines/gists/edges, NEVER cuts mid-phrase), and
+// drops lowest-priority tiers first.
 //
-// Чистый код, без LLM. Деградация: нет getTokenCountAsync → ~4 симв/токен, чат не
-// блокируется. review() только ФЛАГ кандидатов на чистку (железное правило: ничего
-// не удаляем автоматически — юзер жмёт «забыть» сам).
+// Pure code, no LLM. Degradation: no getTokenCountAsync → ~4 chars/token, chat is not
+// blocked. review() only FLAGS pruning candidates (hard rule: nothing is deleted
+// automatically — the user clicks "forget" themselves).
 //
-// Метки: 🟢. Зависит только от настроек + метаданных (recollection).
+// Markers: 🟢. Depends only on settings + metadata (recollection).
 //
 // H5: unified scoring + MMR diversity (pure-code, no LLM).
 
 import { getSettings } from '../core/settings.js';
 import { contentTokens } from './text-relevance.js';
 
-// --- Отчёт последней сборки (читает UI для индикатора здоровья памяти) ---
+// --- Last build report (read by the UI for the memory health indicator) ---
 let lastReport = null;
 export function getLastReport() { return lastReport; }
 export function setLastReport(r) { lastReport = r; }
@@ -29,7 +29,7 @@ function clampSig(v) {
 }
 
 /**
- * Оценить число токенов в тексте. Точный счётчик ST при наличии, иначе ~4 симв/токен.
+ * Estimate token count for text. Uses ST's exact counter if available, else ~4 chars/token.
  * @returns {Promise<number>}
  */
 export async function estimate(text) {
@@ -40,16 +40,17 @@ export async function estimate(text) {
     try {
       const n = await c.getTokenCountAsync(t, 0);
       if (Number.isFinite(n)) return n;
-    } catch { /* падаем на грубую оценку */ }
+    } catch { /* fall back to the rough estimate */ }
   }
   return Math.ceil(t.length / 4);
 }
 
 /**
- * Подрезать блок под бюджет токенов, СОХРАНЯЯ заголовок (первую строку, напр.
- * «[Relationship graph …]») и роняя ЦЕЛЫЕ строки тела — так инъекция не превращается
- * в обрывок фразы. Выбор строк по дешёвой оценке (4 симв/токен) с 10% запасом, чтобы
- * итог почти наверняка влез под точный счётчик. Если даже заголовок не лезет → ''.
+ * Trim a block to a token budget, KEEPING the header (first line, e.g.
+ * "[Relationship graph …]") and dropping WHOLE body lines — so the injection never
+ * becomes a phrase fragment. Lines are chosen by the cheap estimate (4 chars/token)
+ * with a 10% margin so the result almost certainly fits under the exact counter. If
+ * even the header doesn't fit → ''.
  * @returns {Promise<string>}
  */
 export async function condense(text, tokenBudget) {
@@ -66,13 +67,14 @@ export async function condense(text, tokenBudget) {
 }
 
 /**
- * Глобальная подгонка под потолок. blocks = [{tier, text, priority}] в порядке сборки.
- * Резерв под memText (ресёрфинг, инжектится отдельной глубиной, но считается в потолок).
- * Заполняем по убыванию приоритета; не влез целиком — condense; не лезет и заголовок —
- * роняем ярус (пишем в report.dropped). Возвращаем текст в ИСХОДНОМ порядке (читаемость).
+ * Global fit under the ceiling. blocks = [{tier, text, priority}] in assembly order.
+ * Reserves room for memText (resurfacing, injected at a separate depth but counted
+ * against the ceiling). Fills by descending priority; doesn't fully fit — condense;
+ * even the header won't fit — drop the tier (logged to report.dropped). Returns text
+ * in the ORIGINAL order (readability).
  * @param {Array<{tier:string,text:string,priority:number}>} blocks
- * @param {number} target потолок токенов на всю память
- * @param {string} [memText] текст ресёрфинга (резервируется первым)
+ * @param {number} target token ceiling for all memory
+ * @param {string} [memText] resurfacing text (reserved first)
  * @returns {Promise<{text:string, report:object}>}
  */
 export async function fitBudget(blocks, target, memText) {
@@ -129,8 +131,8 @@ export async function fitBudget(blocks, target, memText) {
 }
 
 /**
- * Нужно ли подсветить «Пересмотр»? true, когда память почти заполнила потолок.
- * Чистый код, без LLM. Управляется contextBudget.autoReview.
+ * Should the "Review" indicator be highlighted? true when memory has nearly filled
+ * the ceiling. Pure code, no LLM. Controlled by contextBudget.autoReview.
  */
 export function autoReview(report) {
   const s = getSettings();
@@ -140,9 +142,9 @@ export function autoReview(report) {
 }
 
 /**
- * Код-ревью «что чистить»: активные огрызки малой значимости (< lowThreshold),
- * старые первыми — это главный прунабельный инжектируемый ярус. НИЧЕГО не мутирует,
- * только список кандидатов (UI даёт кнопку «забыть» = active=false, восстановимо).
+ * Code review of "what to prune": active low-significance gists (< lowThreshold),
+ * oldest first — the main prunable injected tier. Mutates NOTHING, only returns a
+ * candidate list (the UI offers a "forget" button = active=false, recoverable).
  * @returns {Promise<{candidates:Array<{kind,id,label,reason}>, summary:string}>}
  */
 export async function review() {
@@ -172,12 +174,12 @@ export async function review() {
 // --- H5: Unified scoring + MMR diversity (pure-code, no LLM) ---
 
 /**
- * Унифицированная оценка пункта памяти для 0/1 knapsack.
- * score ∈ [0,1]; выше = ценнее для инъекции.
+ * Unified score for a memory item, for the 0/1 knapsack.
+ * score ∈ [0,1]; higher = more valuable to inject.
  *
  * @param {{text:string, recency?:number, weight?:number, significance?:number, centrality?:number}} item
- *   recency — доля свежести [0,1] (1 = только что); weight — нормализованный вес буфера [0,1];
- *   significance — значимость арки [0,1]; centrality — центральность в графе [0,1].
+ *   recency — freshness fraction [0,1] (1 = just now); weight — normalized buffer weight [0,1];
+ *   significance — arc significance [0,1]; centrality — graph centrality [0,1].
  * @returns {number}
  */
 export function scoreItem(item) {
@@ -195,7 +197,7 @@ export function scoreItem(item) {
   return div > 0 ? score / div : 0.5;
 }
 
-/** Текстовая близость между двумя пунктами памяти (contentTokens → Jaccard). */
+/** Text similarity between two memory items (contentTokens → Jaccard). */
 export function itemSimilarity(aText, bText) {
   const A = contentTokens(String(aText ?? ''));
   const B = contentTokens(String(bText ?? ''));
@@ -207,13 +209,13 @@ export function itemSimilarity(aText, bText) {
 }
 
 /**
- * MMR (Maximal Marginal Relevance) отбор: выбрать до `maxTokens` токенов из
- * `candidates`, балансируя unifiedScore и разнообразие (λ).
+ * MMR (Maximal Marginal Relevance) selection: pick up to `maxTokens` tokens from
+ * `candidates`, balancing unifiedScore and diversity (λ).
  *
  * @param {Array<{text:string, recency?, weight?, significance?, centrality?}>} candidates
- * @param {number} maxTokens — жёсткий потолок токенов
- * @param {number} [lambda=0.7] — баланс релевантность/разнообразие (1 = только score, 0 = только diversity)
- * @returns {Promise<Array>} отобранные пункты в порядке убывания MMR
+ * @param {number} maxTokens — hard token ceiling
+ * @param {number} [lambda=0.7] — relevance/diversity balance (1 = score only, 0 = diversity only)
+ * @returns {Promise<Array>} selected items in descending MMR order
  */
 export async function mmrSelect(candidates, maxTokens, lambda = 0.7) {
   if (!candidates.length) return [];
@@ -223,7 +225,7 @@ export async function mmrSelect(candidates, maxTokens, lambda = 0.7) {
   let usedTokens = 0;
 
   while (unselected.length && usedTokens < maxTokens) {
-    // Пересчитываем MMR для каждого оставшегося.
+    // Recompute MMR for each remaining candidate.
     let best = null, bestMMR = -Infinity, bestIdx = -1;
     for (let i = 0; i < unselected.length; i++) {
       const c = unselected[i];
@@ -239,9 +241,9 @@ export async function mmrSelect(candidates, maxTokens, lambda = 0.7) {
     }
     if (!best) break;
 
-    // Проверим, влезает ли в бюджет.
+    // Check whether it fits the budget.
     const tokens = await estimate(best.text);
-    if (usedTokens + tokens > maxTokens && selected.length > 0) break; // не лезет — стоп
+    if (usedTokens + tokens > maxTokens && selected.length > 0) break; // doesn't fit — stop
 
     selected.push(best);
     usedTokens += tokens;

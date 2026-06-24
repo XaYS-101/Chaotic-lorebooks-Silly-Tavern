@@ -1,16 +1,8 @@
-// auto-hide.js — держит активное окно маленьким, скрывая старые соо ПЛАСТАМИ по арке
-// (SPEC §4b, §9b). Скрытие = флаг is_system (НЕ удаление) → соо выпадает из coreChat
-// (сверено: script.js coreChat = chat.filter(x => !x.is_system)). Полностью обратимо.
-//
-// Железные гарантии:
-//   - прячем ТОЛЬКО после захвата в память: i ≤ watermark и арка запечатана;
-//   - режем целым пластом запечатанной арки (а не по одному соо);
-//   - из НОВЕЙШЕГО скрываемого пласта оставляем keepTailFromSlab соо видимыми (мост);
-//   - НЕ трогаем живой кончик (последние windowSize соо) и pinned-избранное;
-//   - наш набор скрытых индексов трекается в метаданных → revealAll вернёт ровно их
-//     (ручные /hide юзера не задеваем).
-//
-// Метки: 🟢 (без LLM; манипуляция флагом + DOM-атрибутом существующих .mes).
+// auto-hide.js — keeps the active window small by hiding old messages per sealed arc
+// (SPEC §4b, §9b). Uses is_system flag (NOT deletion), fully reversible.
+// Guarantees: only hide after capture (i ≤ watermark + sealed arc); slice by whole
+// arcs; keep tail bridge visible; never touch the live window or pinned favorites.
+// Tracked in chatMetadata → revealAll restores exactly what we hid. 🟢 pure code.
 
 import { getSettings, backgroundJobsAllowed } from '../core/settings.js';
 import { getSealedArcs } from './arc-segmenter.js';
@@ -42,25 +34,16 @@ function pinnedIndices() {
   return set;
 }
 
-/**
- * Соо помечено ST как системное / коммент / авторская заметка? ST метит такие
- * is_system=true (+ класс .smallSysMes в DOM). Единый предикат на уровне модели —
- * чтобы и auto-hide, и звёзды-избранное (index.js) считали «это ST, не наше»
- * одинаково (баг «у заметок пропадает css» возникал из двух расходящихся проверок).
- */
+/** Is this an ST-native system/comment/author-note message? Single predicate so auto-hide and favorites (index.js) agree. */
 export const isStSystemMessage = (m) => !!m?.is_system;
 
-/**
- * Соо принадлежит ST, а не нам? Наши собственные скрытые соо тоже is_system=true,
- * но они в tracked — их различаем по set. ST-овское трогать нельзя: сняв is_system
- * мы сорвём его стилизацию.
- */
+/** Is this message ST-owned (not ours)? Our own hidden messages are also is_system=true but tracked — distinguish by set. ST-owned messages must never be touched. */
 function isForeignSystem(i, tracked) {
-  if (tracked.has(i)) return false;        // это МЫ его спрятали — наше
-  return isStSystemMessage(chat()[i]);     // is_system не наш → ST-овское (заметка/коммент/сис.)
+  if (tracked.has(i)) return false;        // we hid it — ours
+  return isStSystemMessage(chat()[i]);     // is_system not ours → ST-owned
 }
 
-/** Низкоуровнево: пометить соо скрытым/видимым (реплика hideChatMessageRange). */
+/** Low-level: mark a message hidden/visible (mirrors hideChatMessageRange). */
 function setHidden(i, hide) {
   const m = chat()[i];
   if (!m) return false;
@@ -70,35 +53,28 @@ function setHidden(i, hide) {
   return true;
 }
 
-/**
- * Поддержать активное окно: вычислить целевой набор скрытых индексов и применить
- * дифф. Дёшево; зовётся из injector перед сборкой и после запечатывания арки.
- */
+/** Maintain the active window: compute target hidden set and apply the diff. Called from injector before assembly and after arc sealing. */
 export async function maintain() {
   const s = getSettings().autoHide ?? {};
   const tracked = hiddenSet();
 
   if (s.enabled === false) {
-    if (tracked.size) await revealAll();     // выключили — вернуть всё, что прятали
+    if (tracked.size) await revealAll();     // disabled → restore everything we hid
     return;
   }
 
   const len = chat().length;
   const window = Math.max(2, s.windowSize ?? 12);
   const keepTail = Math.max(0, s.keepTailFromSlab ?? 2);
-  // Требовать summaryGist только если саммари вообще могут появиться (не lite). В lite
-  // фоновых джоб нет → суммари не будет никогда; иначе авто-скрытие там не сработало бы
-  // совсем (старое поведение lite — прятать запечатанный пласт сразу — сохраняем).
+  // Require summaryGist only when summaries can appear (not lite). In lite no bg jobs run → no summary ever; preserve old lite behavior (hide sealed slab immediately).
   const afterSummary = s.afterSummary !== false && backgroundJobsAllowed();
   const scope = s.scope === 'newest' ? 'newest' : 'slab';
   const wm = watermark();
-  const visibleFloor = len - window;         // индексы ≥ floor — живое окно (ВСЕГДА видимы)
+  const visibleFloor = len - window;         // indices ≥ floor — live window (ALWAYS visible)
 
   const pinned = pinnedIndices();
 
-  // Кандидаты-арки: запечатанные, целиком ЗА живым окном (end < floor — режем пластом,
-  // не раскалывая арку по границе окна), захваченные (end ≤ watermark) и — если
-  // afterSummary — уже суммаризованные (есть summaryGist), чтобы скрытие не теряло контекст.
+  // Candidate arcs: sealed, entirely behind the live window (end < floor — slice by slab, don't split arcs), captured (end ≤ watermark), and — if afterSummary — already summarized.
   let arcs = getSealedArcs()
     .filter((a) => a.end != null && a.end < visibleFloor && a.end <= wm)
     .filter((a) => !afterSummary || (a.summaryGist && String(a.summaryGist).trim()))
@@ -106,23 +82,23 @@ export async function maintain() {
   if (!arcs.length) { if (tracked.size) await revealAll(); return; }
 
   const newestEnd = Math.max(...arcs.map((a) => a.end));
-  // scope 'newest' → прячем только новейший суммаризованный пласт; 'slab' → все кандидаты.
+  // scope 'newest' → hide only the newest summarized slab; 'slab' → all candidates.
   if (scope === 'newest') arcs = arcs.filter((a) => a.end === newestEnd);
 
-  // Целевой набор скрытых индексов: всё внутри арок, но НЕ в живом окне.
+  // Target hidden set: all within candidate arcs, but NOT in the live window.
   const target = new Set();
   for (const a of arcs) {
-    // из новейшего пласта оставляем keepTail соо видимыми (мост к сырому окну).
+    // from the newest slab, keep keepTail messages visible (bridge to raw window).
     const hideEnd = a.end === newestEnd ? a.end - keepTail : a.end;
     for (let i = a.start; i <= hideEnd; i++) {
-      if (i >= visibleFloor) continue;       // в живом окне — не трогаем
-      if (pinned.has(i)) continue;           // pinned — иммунен
-      if (isForeignSystem(i, tracked)) continue; // авторская заметка / ST-системное — не трогаем
+      if (i >= visibleFloor) continue;       // in live window — don't touch
+      if (pinned.has(i)) continue;           // pinned — immune
+      if (isForeignSystem(i, tracked)) continue; // author note / ST system — don't touch
       target.add(i);
     }
   }
 
-  // Дифф: спрятать новые, показать выпавшие из таргета (например арка стала dirty/окно сдвинулось назад).
+  // Diff: hide new, show those that fell out of target (e.g. arc became dirty or window shifted back).
   let changed = false;
   for (const i of target) if (!tracked.has(i)) { if (setHidden(i, true)) { tracked.add(i); changed = true; } }
   for (const i of [...tracked]) {
@@ -132,7 +108,7 @@ export async function maintain() {
   if (changed) { saveHidden(tracked); await persistMeta(); await persistChat(); }
 }
 
-/** Скрыть конкретную арку как пласт (ручной триггер). */
+/** Hide a specific arc as a slab (manual trigger). */
 export async function hideArcSlab(arcId) {
   const arc = getSealedArcs().find((a) => a.id === arcId);
   if (!arc || arc.end == null) return;
@@ -141,13 +117,13 @@ export async function hideArcSlab(arcId) {
   let changed = false;
   for (let i = arc.start; i <= arc.end; i++) {
     if (pinned.has(i)) continue;
-    if (isForeignSystem(i, tracked)) continue;   // авторская заметка / ST-системное — не трогаем
+    if (isForeignSystem(i, tracked)) continue;   // author note / ST system — don't touch
     if (setHidden(i, true)) { tracked.add(i); changed = true; }
   }
   if (changed) { saveHidden(tracked); await persistMeta(); await persistChat(); }
 }
 
-/** Показать всё, что МЫ скрывали (ручные /hide юзера не трогаем). */
+/** Reveal everything WE hid (never touches manual user /hide). */
 export async function revealAll() {
   const tracked = hiddenSet();
   if (!tracked.size) return;

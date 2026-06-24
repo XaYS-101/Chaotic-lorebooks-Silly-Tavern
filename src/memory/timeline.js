@@ -1,16 +1,8 @@
-// timeline.js — слияние ленты активности и снапшотов книги в одну хронологию +
-// безопасный откат (Фаза D, slice 5). Всё 🟢.
-//
-// backup.js давно тихо снимает снапшоты (rolling на запечатке арки, safety перед
-// каждой опасной авто-записью), но restore() из UI недостижим. Этот модуль —
-// тонкий слой: buildTimeline() сливает activity-log + снапшоты в один список
-// (новые сверху), restoreTo(id) делает ОТКАТ безопасно и обратимо.
-//
-// Железные правила: НЕ LLM, НЕ трогаем инъекцию (injector/memory-engine нас не
-// импортируют). Импортим только НИЖНИЕ модули (settings/activity-log/backup) →
-// цикла нет; нас импортит только tree-ui (односторонне). Откат обратим: ПЕРЕД
-// перезаписью снимаем safety-снапшот 'pre-restore', поэтому отмену можно отменить.
-// Запись в книгу — только через backup.restore() (никаких прямых saveWorldInfo).
+// timeline.js — merges activity log + lorebook snapshots into a single chronology
+// plus safe rollback (Phase D, slice 5). 🟢 pure code.
+// buildTimeline() → unified feed (newest first); restoreTo(id) → safe, reversible
+// rollback with a pre-restore safety snapshot. No LLM, no injection impact. Only
+// imported by tree-ui (one-way dependency).
 
 import { getSettings } from '../core/settings.js';
 import { getLog, log as logActivity } from './activity-log.js';
@@ -18,13 +10,7 @@ import {
   listSnapshots, restore as restoreSnapshot, safetySnapshot, snapshot,
 } from '../lorebook/backup.js';
 
-/**
- * Единая хронология: события активности + точки восстановления (снапшоты).
- * Возвращает массив, отсортированный по времени УБЫВАЮЩЕ (новые сверху).
- * Каждый тип строк уважает свой тумблер: активность — activityLog.enabled,
- * снапшоты — backup.enabled.
- * @returns {Array<{type:'activity'|'snapshot', at:number, id:string, ...}>}
- */
+/** Unified timeline: activity events + restore points (snapshots). Newest first. Each type respects its toggle. */
 export function buildTimeline() {
   const s = getSettings();
   const out = [];
@@ -46,29 +32,20 @@ export function buildTimeline() {
     }
   }
 
-  out.sort((a, b) => b.at - a.at);   // новые сверху
+  out.sort((a, b) => b.at - a.at);   // newest first
   return out;
 }
 
-/**
- * Откатить книгу к выбранной точке восстановления. Безопасно и обратимо:
- *   1) safety-снапшот 'pre-restore' текущего состояния (чтобы отмену можно отменить);
- *   2) restore(id) из backup (пишет в книгу через ST);
- *   3) при успехе — сброс кэша ядра памяти (§4b), чтобы след. генерация увидела
- *      откат, и одна строка 'restore' в ленту активности.
- * Полностью защищено try/catch — никогда не бросает в UI-обработчик.
- * @param {string} id — id снапшота
- * @returns {Promise<boolean>} true при успешном откате
- */
+/** Roll back the lorebook to a chosen snapshot. Safe and reversible: pre-restore safety snapshot → restore → reset memory cache → log activity. Fully guarded by try/catch. */
 export async function restoreTo(id) {
   try {
     const snap = listSnapshots().find((x) => x.id === id);
-    await safetySnapshot('pre-restore');       // обратимость отмены
+    await safetySnapshot('pre-restore');       // undo can be undone
     const ok = await restoreSnapshot(id);
     if (!ok) return false;
 
-    // Кэш ядра памяти устарел — следующая сцена пересоберёт его из откатанной книги.
-    // Динамический импорт: не тянем статическое ребро в граф зависимостей.
+    // Memory core cache is stale — next scene rebuilds from the rolled-back book.
+    // Dynamic import: don't pull a static edge into the dependency graph.
     try { const { resetCache } = await import('./memory-engine.js'); resetCache(); } catch { /* no-op */ }
 
     const reason = snap?.reason || 'snapshot';
@@ -81,5 +58,5 @@ export async function restoreTo(id) {
   }
 }
 
-/** Снять точку восстановления вручную (кнопка «Snapshot now»). */
+/** Take a manual restore point ("Snapshot now" button). */
 export function snapshotNow() { return snapshot('manual'); }

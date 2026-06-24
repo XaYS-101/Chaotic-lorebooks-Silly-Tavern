@@ -1,28 +1,28 @@
-// lorebook-service.js — работа с привязанным лорбуком (World Info).
-// Отвечает за: попап «выбрать существующий / создать новый / отмена»,
-// привязку книги к чату (через НАТИВНЫЙ ключ ST, чтобы движок WI её активировал),
-// чтение энтри. Всё 🟢.
+// lorebook-service.js — working with the bound lorebook (World Info).
+// Responsible for: the "choose existing / create new / cancel" popup, binding a
+// book to the chat (via ST's NATIVE key so the WI engine activates it), and
+// reading entries. All 🟢.
 //
-// Сверено с исходниками ST (public/scripts/world-info.js, st-context.js, popup.js):
-//   - loadWorldInfo / saveWorldInfo / updateWorldInfoList — НА getContext().
-//   - createNewWorldInfo / createWorldInfoEntry — НЕ на context; реплицируем
-//     через saveWorldInfo({entries:{}}) и собственный шаблон энтри (lorebook-writer).
-//   - НАТИВНАЯ привязка книги к чату: chat_metadata['world_info'] (METADATA_KEY).
-//     Именно этот ключ заставляет ST сканировать/активировать книгу → выполняется
-//     железное правило #1 (standalone-книга работает сама).
-//   - world_names НЕ на context; берём из globalThis либо из DOM-селекта #world_info.
+// Checked against ST sources (public/scripts/world-info.js, st-context.js, popup.js):
+//   - loadWorldInfo / saveWorldInfo / updateWorldInfoList — ON getContext().
+//   - createNewWorldInfo / createWorldInfoEntry — NOT on context; we replicate via
+//     saveWorldInfo({entries:{}}) and our own entry template (lorebook-writer).
+//   - NATIVE book-to-chat binding: chat_metadata['world_info'] (METADATA_KEY).
+//     This key is what makes ST scan/activate the book → satisfies hard rule #1
+//     (a standalone book works on its own).
+//   - world_names is NOT on context; read from globalThis or the #world_info DOM select.
 
 import { t } from '../core/i18n.js';
 import { getSettings } from '../core/settings.js';
 
-// Наш «информационный» ключ (для миграции/ясности). Реальную активацию даёт NATIVE_KEY.
+// Our "informational" key (for migration/clarity). NATIVE_KEY drives real activation.
 const BIND_KEY = 'chaoticLorebooks_book';
-// METADATA_KEY из world-info.js — единственная книга, привязанная к чату, которую ST активирует.
+// METADATA_KEY from world-info.js — the one chat-bound book ST actually activates.
 const NATIVE_KEY = 'world_info';
 
 function ctx() { return SillyTavern.getContext(); }
 
-/** Имя привязанной к текущему чату книги (наш ключ → фолбэк на нативный). */
+/** Name of the book bound to the current chat (our key → native fallback). */
 export function getBoundBook() {
   const meta = ctx().chatMetadata ?? {};
   return meta[BIND_KEY] ?? meta[NATIVE_KEY] ?? null;
@@ -30,23 +30,23 @@ export function getBoundBook() {
 
 async function bindBook(name) {
   const meta = ctx().chatMetadata;
-  meta[NATIVE_KEY] = name;   // ← ST активирует именно эту привязку
-  meta[BIND_KEY] = name;     // ← наш ключ (миграция/ясность)
+  meta[NATIVE_KEY] = name;   // ← ST activates this binding
+  meta[BIND_KEY] = name;     // ← our key (migration/clarity)
   await ctx().saveMetadata();
-  // Нативная панель WI читает список при ребинде — подтолкнём, если метод есть.
+  // The native WI panel reads its list on rebind — nudge it if the method exists.
   try { await ctx().updateWorldInfoList?.(); } catch { /* no-op */ }
 }
 
-/** Перебиндить текущий чат на другую книгу (публично, для branch-guard). */
+/** Rebind the current chat to a different book (public, for branch-guard). */
 export async function rebindBook(name) { await bindBook(name); }
 
-/** Список имён существующих World Info книг. Несколько источников с фолбэком. */
+/** Names of existing World Info books. Several sources with fallback. */
 function listWorldBooks() {
-  // 1) глобал world_names (экспорт world-info.js, часто доступен на window).
+  // 1) global world_names (export from world-info.js, often on window).
   try {
     if (Array.isArray(globalThis.world_names)) return globalThis.world_names.slice();
   } catch { /* ignore */ }
-  // 2) опции нативного селекта книг в DOM.
+  // 2) options of the native book select in the DOM.
   try {
     const sel = document.getElementById('world_editor_select') || document.getElementById('world_info');
     if (sel) {
@@ -69,13 +69,13 @@ function fillTemplate(tpl) {
 }
 
 /**
- * Гарантировать привязанную книгу.
- *   interactive=true (дефолт): если книги нет и askOnFirstUse — показать попап
- *     (существующая / новая / отмена). Зовётся на ЯВНЫХ действиях юзера (заметка,
- *     промоут избранного), поэтому книга создаётся «позже» — при первой записи, а
- *     не на первом сообщении.
- *   interactive=false: без попапа, сразу тихо создать по шаблону (фоновые записи).
- * Возвращает имя книги или null (если отмена).
+ * Ensure a bound book exists.
+ *   interactive=true (default): if no book and askOnFirstUse — show the popup
+ *     (existing / new / cancel). Called on EXPLICIT user actions (note, promote
+ *     favorite), so the book is created "later" — on the first write, not on the
+ *     first message.
+ *   interactive=false: no popup, silently create from template (background writes).
+ * Returns the book name or null (on cancel).
  */
 export async function ensureBook(settings, { interactive = true } = {}) {
   const existing = getBoundBook();
@@ -87,14 +87,14 @@ export async function ensureBook(settings, { interactive = true } = {}) {
 
   const books = listWorldBooks();
   const choice = await showChooseBookPopup(books, fillTemplate(settings.lorebookNameTemplate));
-  if (!choice) return null;                 // отмена
+  if (!choice) return null;                 // cancel
   if (choice.type === 'existing') { await bindBook(choice.name); return choice.name; }
   return createAndBind(choice.name);
 }
 
 /**
- * Тихо гарантировать книгу для ФОНОВОЙ записи (без попапа). Зовётся writer'ом,
- * когда пришла первая реальная энтри, а книги ещё нет → создаём по шаблону.
+ * Silently ensure a book for a BACKGROUND write (no popup). Called by the writer
+ * when the first real entry arrives but no book exists → create from template.
  */
 export async function ensureBookForWrite() {
   const existing = getBoundBook();
@@ -103,7 +103,7 @@ export async function ensureBookForWrite() {
 }
 
 async function createAndBind(name) {
-  // createNewWorldInfo нет на context → реплицируем: пустая книга + сохранение.
+  // createNewWorldInfo not on context → replicate: empty book + save.
   try {
     const existing = listWorldBooks();
     if (!existing.includes(name)) {
@@ -118,9 +118,9 @@ async function createAndBind(name) {
 }
 
 /**
- * Попап выбора книги. Строим РЕАЛЬНЫЙ DOM-элемент и читаем значения из него
- * (callGenericPopup может изолировать DOM — держим ссылки в замыкании, не ищем
- * по document.getElementById). Возвращает {type:'existing'|'new',name} | null.
+ * Book-choice popup. Build a REAL DOM element and read values from it
+ * (callGenericPopup may isolate the DOM — keep refs in the closure, don't use
+ * document.getElementById). Returns {type:'existing'|'new',name} | null.
  */
 async function showChooseBookPopup(books, defaultNewName) {
   const c = ctx();
@@ -166,7 +166,7 @@ async function showChooseBookPopup(books, defaultNewName) {
   return { type: 'new', name: (newInput?.value || defaultNewName).trim() };
 }
 
-/** Прочитать энтри привязанной книги (массив). Сверено: ctx.loadWorldInfo. */
+/** Read the bound book's entries (array). Checked: ctx.loadWorldInfo. */
 export async function readEntries() {
   const name = getBoundBook();
   if (!name) return [];
@@ -180,10 +180,10 @@ export async function readEntries() {
   }
 }
 
-/** Имя книги, привязанной к чату (для writer/backup). null если нет. */
+/** Name of the chat-bound book (for writer/backup). null if none. */
 export function getBoundBookName() { return getBoundBook(); }
 
-/** Гарантировать уникальность имени книги: добавить « #2», « #3»… при коллизии. */
+/** Ensure a unique book name: append " #2", " #3"… on collision. */
 function uniqueBookName(base) {
   const existing = new Set(listWorldBooks());
   if (!existing.has(base)) return base;
@@ -191,13 +191,13 @@ function uniqueBookName(base) {
     const cand = `${base} #${i}`;
     if (!existing.has(cand)) return cand;
   }
-  return `${base} #${Date.now ? '' : ''}new`;   // практически недостижимо
+  return `${base} #${Date.now ? '' : ''}new`;   // practically unreachable
 }
 
 /**
- * Имя книги для ВЕТКИ чата (форк). Берём шаблон имени из настроек и заполняем
- * текущим (ветка-)chatId, поэтому имя ОТЛИЧАЕТСЯ от родительской книги. Если
- * совпало (напр. шаблон без {{chat}}) — добавляем суффикс « — branch».
+ * Book name for a chat BRANCH (fork). Take the name template from settings and
+ * fill it with the current (branch) chatId, so the name DIFFERS from the parent
+ * book. If they match (e.g. template without {{chat}}) — append " — branch".
  */
 export function deriveBranchBookName(srcName) {
   let name;
@@ -211,10 +211,11 @@ export function deriveBranchBookName(srcName) {
 }
 
 /**
- * Форк книги: копировать ВСЕ энтри привязанной книги (включая отключённую
- * manifest-энтри графа) в новую книгу и перебиндить текущий (ветка-)чат на копию.
- * Так память ветки не пишется в книгу родителя (изоляция таймлайнов).
- * Возвращает имя новой книги, либо null при ошибке (тогда ветка делит книгу — старое поведение).
+ * Fork a book: copy ALL entries of the bound book (including the disabled graph
+ * manifest entry) into a new book and rebind the current (branch) chat to the
+ * copy. The branch's memory no longer writes into the parent's book (timeline
+ * isolation). Returns the new book name, or null on error (then the branch
+ * shares the book — old behavior).
  */
 export async function forkBook(srcName, dstName) {
   if (!srcName) return null;

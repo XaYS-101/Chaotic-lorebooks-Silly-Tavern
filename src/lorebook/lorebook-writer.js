@@ -1,27 +1,27 @@
-// lorebook-writer.js — ЕДИНСТВЕННАЯ точка записи в книгу (SPEC §0.2, §3b, Фаза A).
-// Никакая фича не вызывает saveWorldInfo напрямую — только через этот модуль.
+// lorebook-writer.js — the ONLY write path into a book (SPEC §0.2, §3b, Phase A).
+// No feature calls saveWorldInfo directly — only through this module.
 //
-// Гарантии:
-//   - Мьютекс: все записи сериализуются (промис-цепочка) → нет гонок между нашими задачами.
-//   - CAS-по-хэшу: перед перезаписью авто-энтри перечитываем книгу; если контент
-//     энтри изменился с нашей прошлой записи (юзер правил вручную) → энтри
-//     повышается в origin=user и автоматикой больше НЕ трогается (юзер всегда выигрывает).
-//   - РЕАЛЬНЫЕ key: каждая энтри — валидная WI-запись с настоящими ключами
-//     (никакого подавления keyword-скана; выключили расширение → книга работает сама).
-//   - origin-теги в comment: auto-arc|auto-detail|author-note|scout|user.
-//   - defer на ручную правку: пока юзер редактирует книгу (WORLDINFO_UPDATED) — ждём.
-//   - safety-снапшот перед перезаписью существующей энтри.
+// Guarantees:
+//   - Mutex: all writes serialize (promise chain) → no races between our tasks.
+//   - Hash-based CAS: before overwriting an auto-entry we reload the book; if the
+//     entry content changed since our last write (user edited it) → the entry is
+//     promoted to origin=user and automation no longer touches it (user always wins).
+//   - REAL keys: every entry is a valid WI record with real keys (no keyword-scan
+//     suppression; disable the extension → the book works on its own).
+//   - origin tags in comment: auto-arc|auto-detail|author-note|scout|user.
+//   - defer on manual edits: while the user edits the book (WORLDINFO_UPDATED) we wait.
+//   - safety snapshot before overwriting an existing entry.
 //
-// Сверено с ST: createWorldInfoEntry/createNewWorldInfo НЕ на context → реплицируем
-// шаблон энтри (newWorldInfoEntryDefinition) и свободный uid здесь.
+// Checked against ST: createWorldInfoEntry/createNewWorldInfo are NOT on context →
+// we replicate the entry template (newWorldInfoEntryDefinition) and a free uid here.
 
 import { getBoundBookName, ensureBookForWrite } from './lorebook-service.js';
 import { contentTokens } from '../memory/text-relevance.js';
 
 function ctx() { return SillyTavern.getContext(); }
 
-// Шаблон новой энтри (значения по умолчанию из newWorldInfoEntryDefinition, ST 1.12+).
-// Экспортируется, чтобы другие писатели (knowledge-graph) создавали ПОЛНЫЕ записи.
+// New-entry template (defaults from newWorldInfoEntryDefinition, ST 1.12+).
+// Exported so other writers (knowledge-graph) create COMPLETE records.
 export const ENTRY_TEMPLATE = Object.freeze({
   key: [], keysecondary: [], comment: '', content: '',
   constant: false, vectorized: false, selective: true, selectiveLogic: 0,
@@ -38,12 +38,12 @@ export const ENTRY_TEMPLATE = Object.freeze({
 
 const ORIGIN_RE = /\[CL\s+([^\]]*)\]/i;          // [CL origin=.. tier=.. arc=.. h=..]
 const TREE_RE = /\[TREE:\s*[^\]]+\]/i;
-// Происхождения, которые автоматика НЕ перезаписывает.
+// Origins that automation does NOT overwrite.
 const PROTECTED_ORIGINS = new Set(['user', 'author-note']);
 
-// --- defer на ручную правку юзера ---
+// --- defer on the user's manual edits ---
 let deferUntil = 0;
-/** index.js зовёт при WORLDINFO_UPDATED по нашей книге. Откладываем записи на 5с. */
+/** index.js calls this on WORLDINFO_UPDATED for our book. Defer writes by 5s. */
 export function noteUserEditing() { deferUntil = Date.now() + 5000; }
 async function waitIfDeferred() {
   while (Date.now() < deferUntil) {
@@ -51,15 +51,15 @@ async function waitIfDeferred() {
   }
 }
 
-// --- Мьютекс: глобальная промис-цепочка записей ---
+// --- Mutex: global write promise chain ---
 let chain = Promise.resolve();
 function withLock(fn) {
-  const run = chain.then(fn, fn);          // выполнить даже если предыдущая упала
-  chain = run.catch(() => {});             // цепочку не рвём
+  const run = chain.then(fn, fn);          // run even if the previous one failed
+  chain = run.catch(() => {});             // never break the chain
   return run;
 }
 
-// --- Утилиты ---
+// --- Utilities ---
 function djb2(str) {
   let h = 5381;
   const s = String(str ?? '');
@@ -91,22 +91,22 @@ function buildComment({ origin, tier, arc, title, treePath, contentHash }) {
   return parts.join(' ');
 }
 
-/** Вывести РЕАЛЬНЫЕ ключи из явного списка / заголовка / контента (≥1 гарантирован). */
+/** Derive REAL keys from explicit list / title / content (≥1 guaranteed). */
 function deriveKeys(patch) {
   if (Array.isArray(patch.key) && patch.key.length) {
     return patch.key.map((k) => String(k).trim()).filter(Boolean);
   }
   const keys = new Set();
-  // Имена собственные (с заглавной) из заголовка и первых строк контента — лучшие ключи.
+  // Proper nouns (capitalized) from title and first content lines — best keys.
   const src = `${patch.title ?? ''} ${patch.content ?? ''}`;
   for (const m of src.matchAll(/\b([A-ZА-ЯЁ][\p{L}]{2,})\b/gu)) keys.add(m[1]);
-  // Добавим пару значимых контент-токенов, если имён мало.
+  // Add a couple of meaningful content tokens if names are sparse.
   if (keys.size < 2) for (const t of contentTokens(patch.title || patch.content).slice(0, 3)) keys.add(t);
   const arr = [...keys].slice(0, 6);
   return arr.length ? arr : ['memory'];
 }
 
-/** Найти существующую авто-энтри по дедупу: тот же treePath+title, либо пересечение ключей. */
+/** Find an existing auto-entry by dedup: same treePath+title, or key overlap. */
 function findDup(data, patch, keys) {
   const wantTitle = (patch.title ?? '').toLowerCase().trim();
   const wantPath = (patch.treePath ?? '').toLowerCase().trim();
@@ -116,7 +116,7 @@ function findDup(data, patch, keys) {
     const eTitle = cmt.replace(ORIGIN_RE, '').replace(TREE_RE, '').trim();
     const samePath = wantPath && cmt.includes(`[tree: ${wantPath}]`);
     if (wantTitle && eTitle === wantTitle && (!wantPath || samePath)) return e;
-    // пересечение ключей (триграм-дешёвый дедуп): ≥2 общих ключа
+    // key overlap (cheap dedup): ≥2 shared keys
     const ek = new Set((e.key ?? []).map((k) => String(k).toLowerCase()));
     let common = 0; for (const k of keyset) if (ek.has(k)) common++;
     if (common >= 2 && samePath) return e;
@@ -125,13 +125,13 @@ function findDup(data, patch, keys) {
 }
 
 /**
- * Низкоуровневая операция чтения-правки-записи книги под мьютексом и с CAS.
- * mutate(data) — изменяет data.entries; возвращает true если что-то менялось.
+ * Low-level read-modify-write of a book under the mutex with CAS.
+ * mutate(data) — mutates data.entries; returns true if anything changed.
  */
 export function casWrite(name, mutate) {
   return withLock(async () => {
     await waitIfDeferred();
-    // Ленивое создание книги: первая РЕАЛЬНАЯ запись создаёт книгу (отложенный старт).
+    // Lazy book creation: the first REAL write creates the book (deferred start).
     const book = name || getBoundBookName() || await ensureBookForWrite();
     if (!book) return false;
     let data;
@@ -146,10 +146,10 @@ export function casWrite(name, mutate) {
 }
 
 /**
- * Высокоуровневая запись. patch:
+ * High-level write. patch:
  *   { origin, tier, arc, content, title, treePath, key?[] }
- * Идемпотентно: апдейт существующей авто-энтри либо создание новой.
- * Защищённые origin (user/author-note) НЕ перезаписываются.
+ * Idempotent: update an existing auto-entry or create a new one.
+ * Protected origins (user/author-note) are NOT overwritten.
  */
 export async function enqueueWrite(patch) {
   if (!patch?.content && !patch?.title) return false;
@@ -161,16 +161,16 @@ export async function enqueueWrite(patch) {
 
     if (dup) {
       const origin = parseOrigin(dup.comment);
-      // CAS: контент изменился с нашей прошлой записи? → юзер правил вручную.
+      // CAS: content changed since our last write? → user edited it manually.
       const storedH = origin.h;
       const curH = djb2(dup.content);
       if (storedH && storedH !== curH) {
-        // Повышаем в origin=user и больше не трогаем содержимое.
+        // Promote to origin=user and stop touching the content.
         dup.comment = bumpOriginToUser(dup.comment);
         return true;
       }
-      if (PROTECTED_ORIGINS.has(origin.origin)) return false;   // юзер/заметка — не трогаем
-      // Обновляем содержимое авто-энтри.
+      if (PROTECTED_ORIGINS.has(origin.origin)) return false;   // user/note — leave alone
+      // Update the auto-entry content.
       touchedExisting = true;
       dup.content = String(patch.content ?? dup.content);
       const newH = djb2(dup.content);
@@ -184,7 +184,7 @@ export async function enqueueWrite(patch) {
       return true;
     }
 
-    // Новая энтри.
+    // New entry.
     const uid = freeUid(data);
     if (uid == null) return false;
     const contentHash = djb2(patch.content ?? '');
@@ -196,15 +196,15 @@ export async function enqueueWrite(patch) {
         origin: patch.origin || 'auto-detail', tier: patch.tier, arc: patch.arc,
         title: patch.title, treePath: patch.treePath, contentHash,
       }),
-      constant: patch.tier === 'pinned',          // pinned → всегда активна
+      constant: patch.tier === 'pinned',          // pinned → always active
     };
     return true;
   });
 
-  // Safety-снапшот, если перезаписали существующую (опасная операция).
+  // Safety snapshot if we overwrote an existing entry (risky operation).
   if (ok && touchedExisting) {
     try { const { safetySnapshot } = await import('./backup.js'); await safetySnapshot(); }
-    catch { /* backup необязателен */ }
+    catch { /* backup is optional */ }
   }
   return ok;
 }
@@ -221,11 +221,11 @@ function bumpOriginToUser(comment) {
   return buildComment({
     origin: 'user', tier: o.tier, arc: o.arc,
     title: stripMeta(comment), treePath: pathFrom(comment),
-    // h НЕ ставим: origin=user больше не сверяется автоматикой.
+    // no h: origin=user is no longer checked by automation.
   });
 }
 
-/** Идемпотентный upsert произвольной энтри (для будущих модулей). */
+/** Idempotent upsert of an arbitrary entry (for future modules). */
 export async function upsertEntry(entry) {
   return casWrite(null, async (data) => {
     const uid = entry.uid != null && entry.uid in data.entries ? entry.uid : freeUid(data);
@@ -235,7 +235,7 @@ export async function upsertEntry(entry) {
   });
 }
 
-/** Слить две энтри (b в a): объединить ключи и контент. Возвращает a. */
+/** Merge two entries (b into a): union keys and content. Returns a. */
 export function mergeEntries(a, b) {
   a.key = Array.from(new Set([...(a.key ?? []), ...(b.key ?? [])])).slice(0, 8);
   if (b.content && !String(a.content).includes(b.content)) {

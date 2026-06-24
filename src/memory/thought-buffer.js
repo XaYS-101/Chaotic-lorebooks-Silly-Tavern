@@ -1,7 +1,7 @@
-// thought-buffer.js — ярус 1. ACT-R активация (степенное затухание вместо экспоненты)
-// + асимптотическое подкрепление + событийное пенальти при сдвиге сцены. Всё 🟢 (без LLM).
+// thought-buffer.js — tier 1. ACT-R activation (power-law decay, not exponential)
+// + asymptotic reinforcement + scene-shift event penalty. All 🟢 (no LLM).
 //
-// Пункт: { id, text, kind, subject, importance(1-3), weight, lastSeen, mentionCount, createdTurn }
+// Item: { id, text, kind, subject, importance(1-3), weight, lastSeen, mentionCount, createdTurn }
 
 import { getSettings } from '../core/settings.js';
 import { contentTokens, stem } from './text-relevance.js';
@@ -10,28 +10,28 @@ import { trace } from '../core/debug-trace.js';
 const META_KEY = 'chaoticLorebooks_buffer';
 const TURN_KEY = 'chaoticLorebooks_sceneStats'; // turn counter lives here
 
-// Допустимые виды пункта буфера (для UI-дропдауна правки).
+// Allowed buffer item kinds (for the UI edit dropdown).
 export const BUFFER_KINDS = ['goal', 'trait', 'lore', 'thread'];
 
-// ACT-R: степенной декей (d=0.5 — стандартное значение из когнитивной психологии).
-// A = ln(Σ t_j^(-d)) — сумма по всем упоминаниям; weight = ceil · A_norm.
+// ACT-R: power-law decay (d=0.5 — standard value from cognitive psychology).
+// A = ln(Σ t_j^(-d)) — sum over all mentions; weight = ceil · A_norm.
 const ACTR_DECAY = 0.5;
-// Сальность по виду (множитель half-life): выше → медленнее тухнет.
+// Salience by kind (half-life multiplier): higher → decays slower.
 const KIND_SALIENCE = { goal: 1.5, trait: 1.0, lore: 0.8, thread: 0.5 };
 const DEFAULT_IMPORTANCE = { goal: 2, trait: 2, lore: 3, thread: 1 };
-const STATE_KINDS = new Set(['trait', 'thread']);  // один пункт на (субъект, вид)
-const CONSTANT_KINDS = new Set(['trait', 'lore']); // ярус «констант» при importance 3
-const REINFORCE_BETA = 0.5;   // W_new = ceil - (ceil - W_old)*β  (асимптотика к ceil)
-const SCENE_PENALTY = 0.2;    // множитель к транзитным мыслям при сдвиге сцены
-const DROP_FLOOR = 0.3;       // нормализованная активация ниже этого → выпадение
-const SIM_THRESHOLD = 0.5;    // нечёткое совпадение целей/лора (Jaccard)
-const MAX_GOAL_AGE = 20;      // цели старше этого (в ходах) без подкрепления → expire
+const STATE_KINDS = new Set(['trait', 'thread']);  // one item per (subject, kind)
+const CONSTANT_KINDS = new Set(['trait', 'lore']); // "constant" tier at importance 3
+const REINFORCE_BETA = 0.5;   // W_new = ceil - (ceil - W_old)*β  (asymptote toward ceil)
+const SCENE_PENALTY = 0.2;    // multiplier on transient thoughts at scene shift
+const DROP_FLOOR = 0.3;       // normalized activation below this → drop
+const SIM_THRESHOLD = 0.5;    // fuzzy match for goals/lore (Jaccard)
+const MAX_GOAL_AGE = 20;      // goals older than this (turns) without reinforcement → expire
 
-// «Константа»: важная (importance 3) черта/чувство/лор — ведёт себя как пин:
-// не тухнет, не выпадает по полу, не вытесняется лимитом.
+// "Constant": important (importance 3) trait/feeling/lore — behaves like a pin:
+// never decays, never drops by floor, never evicted by the cap.
 const isConstant = (it) => (it.importance || 1) >= 3 && CONSTANT_KINDS.has(it.kind);
 
-/** Текущий номер хода (из sceneStats, иначе длина чата). */
+/** Current turn number (from sceneStats, else chat length). */
 function currentTurn() {
   const meta = SillyTavern.getContext().chatMetadata;
   if (meta?.[TURN_KEY]?.turn) return meta[TURN_KEY].turn;
@@ -65,11 +65,11 @@ function findSimilar(buf, { text, kind, subject }) {
   return buf.find((i) => i.kind === kind && jac(i.text, text) >= SIM_THRESHOLD) || null;
 }
 
-/** Добавить/подтвердить пункт (explicit upsert → вес сразу в потолок). */
+/** Add/confirm an item (explicit upsert → weight goes straight to ceiling). */
 export async function upsertItem({ text, kind = 'thread', subject, importance, replaceId }) {
   const buf = getBuffer();
   const subj = subjectOf(text, subject);
-  const explicitImp = importance != null;       // явная переоценка важности от вызывающего
+  const explicitImp = importance != null;       // caller explicitly overrides importance
   const imp = clampImp(importance ?? DEFAULT_IMPORTANCE[kind] ?? 2);
   const turn = currentTurn();
   const target = replaceId ? buf.find((i) => i.id === replaceId)
@@ -77,16 +77,17 @@ export async function upsertItem({ text, kind = 'thread', subject, importance, r
 
   if (target) {
     target.text = text.trim(); target.kind = kind; target.subject = subj;
-    // Явная важность от LLM может и ПОНИЗИТЬ (иначе раз ставшая 3 черта-константа
-    // пиннилась бы навсегда); без явной — монотонный максимум (подтверждение не роняет).
+    // Explicit importance from the LLM may also LOWER it (otherwise a trait once set
+    // to constant 3 would pin forever); without explicit, take the monotonic max
+    // (confirmation never lowers).
     target.importance = explicitImp ? imp : Math.max(target.importance || 1, imp);
-    // Подкрепление: добавить ход в историю упоминаний.
+    // Reinforce: append this turn to the mention history.
     target.mentionCount = (target.mentionCount || 1) + 1;
     if (!Array.isArray(target.mentionTurns)) target.mentionTurns = [];
     target.mentionTurns.push(turn);
     if (target.mentionTurns.length > 12) target.mentionTurns = target.mentionTurns.slice(-8);
     target.lastSeen = turn;
-    target.weight = ceilingOf(target); // подкрепление → в потолок
+    target.weight = ceilingOf(target); // reinforcement → ceiling
   } else {
     const it = { id: `b_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       text: text.trim(), kind, subject: subj, importance: imp, weight: 0,
@@ -99,21 +100,21 @@ export async function upsertItem({ text, kind = 'thread', subject, importance, r
   await persist();
 }
 
-/** Один ход: ACT-R спад + выпадение + обогащение из сцены + goal expiry. */
+/** One turn: ACT-R decay + drop + scene reinforcement + goal expiry. */
 export async function tickBuffer() {
   const s = getSettings().thoughtBuffer;
   if (!s.enabled) return;
   const buf = getBuffer();
   const turn = currentTurn();
-  const decayMul = s.decayPerTurn ?? 1; // >1 ускоряет декей, <1 замедляет
+  const decayMul = s.decayPerTurn ?? 1; // >1 speeds decay, <1 slows it
 
-  // 1) ACT-R активация → вес. Константы не тухнут.
+  // 1) ACT-R activation → weight. Constants never decay.
   for (const it of buf) {
-    if (isConstant(it)) continue; // пин — всегда в потолке
+    if (isConstant(it)) continue; // pinned — always at ceiling
 
-    // Goal lifecycle: если цель старше maxGoalAge без подкрепления → expire.
+    // Goal lifecycle: a goal older than maxGoalAge without reinforcement → expire.
     if (it.kind === 'goal' && it.createdTurn && (turn - it.lastSeen) > MAX_GOAL_AGE) {
-      it.weight = 0; // выпадет в шаге 2
+      it.weight = 0; // dropped in step 2
       continue;
     }
 
@@ -126,24 +127,23 @@ export async function tickBuffer() {
       actrSum += Math.pow(lag, -ACTR_DECAY);
     }
 
-    // Сальность: importance × kindWeight → half-life factor.
+    // Salience: importance × kindWeight → half-life factor.
     const salience = (it.importance || 1) * (KIND_SALIENCE[it.kind] ?? 1);
-    // Нормализация: используем all-at-lag=1 как теоретический максимум для
-    // фиксированного числа упоминаний, чтобы items с долгой историей не
-    // наказывались большим знаменателем.
-    const refContrib = Math.pow(1, -ACTR_DECAY); // = 1.0 при d=0.5
+    // Normalization: use all-at-lag=1 as the theoretical max for a fixed mention
+    // count, so items with a long history aren't penalized by a larger denominator.
+    const refContrib = Math.pow(1, -ACTR_DECAY); // = 1.0 when d=0.5
     const maxSum = mentions.length * refContrib;
     const norm = maxSum > 0 ? Math.min(1, actrSum / maxSum) * salience / 3 : 0;
     it.weight = norm * ceilingOf(it);
     it.lastSeen = turn;
   }
 
-  // 2) Выпадение ниже пола — кроме констант. Также выпадают expired цели (weight=0).
+  // 2) Drop below floor — except constants. Expired goals (weight=0) also drop.
   const floor = (s.dropThreshold ?? DROP_FLOOR) * (ceilingOf({ importance: 1 }) || 5) / 5;
   const kept = buf.filter((it) => isConstant(it) || it.weight > floor);
   buf.length = 0; buf.push(...kept);
 
-  // 3) Асимптотическое обогащение: упомянуто в свежих соо → тянем к потолку.
+  // 3) Asymptotic reinforcement: mentioned in recent messages → pull toward ceiling.
   const recent = new Set((ctx().chat ?? []).slice(-2).flatMap((m) => contentTokens(m.mes)));
   if (recent.size) {
     for (const it of buf) {
@@ -151,7 +151,7 @@ export async function tickBuffer() {
       const wordHit = contentTokens(it.text).some((w) => recent.has(w));
       if (subjHit || wordHit) {
         const ceil = ceilingOf(it);
-        it.weight = ceil - (ceil - it.weight) * REINFORCE_BETA;  // к ceil, не за него
+        it.weight = ceil - (ceil - it.weight) * REINFORCE_BETA;  // toward ceil, not past it
         it.lastSeen = turn;
         if (!Array.isArray(it.mentionTurns)) it.mentionTurns = [];
         it.mentionTurns.push(turn);
@@ -163,7 +163,7 @@ export async function tickBuffer() {
   await persist();
 }
 
-/** Пенальти при сдвиге сцены: транзитные (thread, imp<3) глушим; фундамент иммунен. */
+/** Scene-shift penalty: damp transient items (thread, imp<3); foundation is immune. */
 export async function applyScenePenalty() {
   const buf = getBuffer();
   let changed = false;
@@ -179,9 +179,9 @@ function enforceCap(buf) {
   const s = getSettings().thoughtBuffer;
   if (!s.limitEnabled) return;
   if (buf.length <= s.maxItems) return;
-  // Константы приоритетны (пин-ярус), но и ОНИ ограничены лимитом — иначе при числе
-  // констант ≥ maxItems буфер раздувался бы без потолка. Держим топ-по-весу константы,
-  // затем добиваем обычными до maxItems. Жёсткая гарантия: buf.length ≤ maxItems.
+  // Constants are prioritized (pin tier) but are STILL bounded by the cap — otherwise
+  // with constants ≥ maxItems the buffer would grow unbounded. Keep top-by-weight
+  // constants, then fill with regular items up to maxItems. Hard guarantee: buf.length ≤ maxItems.
   const byWeight = (a, b) => (b.weight - a.weight) || (b.lastSeen - a.lastSeen);
   const consts = buf.filter(isConstant).sort(byWeight).slice(0, s.maxItems);
   const rest = buf.filter((it) => !isConstant(it)).sort(byWeight);
@@ -196,10 +196,9 @@ export async function removeItem(id) {
 }
 
 /**
- * Ручная правка пункта буфера из UI. Текст обязателен; kind/importance — опц.
- * Субъект пересчитываем по новому тексту (если явный не передан). Вес НЕ трогаем
- * (правка формулировки не должна ни ронять, ни задирать актуальность). Возвращает
- * true, если что-то изменилось.
+ * Manual edit of a buffer item from the UI. Text required; kind/importance optional.
+ * Subject is recomputed from the new text (if none passed explicitly). Weight is NOT
+ * touched (rewording shouldn't lower or raise relevance). Returns true if anything changed.
  */
 export async function editItem(id, { text, kind, importance } = {}) {
   const buf = getBuffer();
@@ -219,7 +218,7 @@ export async function editItem(id, { text, kind, importance } = {}) {
     const imp = clampImp(importance);
     if (imp !== it.importance) {
       it.importance = imp;
-      it.weight = Math.min(it.weight, ceilingOf(it)); // не выше нового потолка
+      it.weight = Math.min(it.weight, ceilingOf(it)); // no higher than the new ceiling
       changed = true;
     }
   }

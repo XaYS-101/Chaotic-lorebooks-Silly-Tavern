@@ -1,12 +1,12 @@
-// recollection.js — ярус 2 «воспоминания» (Фаза B).
-// Сжатые огрызки запечатанных арок + ссылки в граф + 2-4 дословные voiceQuotes.
-// Живёт в chatMetadata (свой на чат). Забывание = active=false (естественное
-// затухание по maxGists, ручной тумблер, bulk по арке).
+// recollection.js — tier 2 "recollections" (Phase B).
+// Compressed gists of sealed arcs + graph refs + 2-4 verbatim voiceQuotes.
+// Lives in chatMetadata (per-chat). Forgetting = active=false (natural decay by
+// maxGists, manual toggle, bulk per arc).
 //
-// Инъекция — чистый код (🟢), без LLM: активные огрызки под бюджет токенов.
-// Сами огрызки рождает arc-summary (🟡) из job-queue.
+// Injection is pure code (🟢), no LLM: active gists within a token budget.
+// The gists themselves are produced by arc-summary (🟡) from the job queue.
 //
-// Метки: 🟢. Зависит только от настроек и метаданных.
+// Markers: 🟢. Depends only on settings and metadata.
 
 import { getSettings } from '../core/settings.js';
 
@@ -21,16 +21,16 @@ function store() {
 }
 async function persist() { try { await ctx().saveMetadata(); } catch { /* no-op */ } }
 
-/** Все огрызки (для UI). */
+/** All gists (for UI). */
 export function getGists() { return store(); }
 
-/** Активные огрызки (для инъекции). */
+/** Active gists (for injection). */
 export function getActive() { return store().filter((g) => g.active !== false); }
 
 /**
- * Добавить огрызок арки. Дедуп по arcId: повторная обработка арки обновляет, не плодит.
- * `significance` (0..1, дефолт 0.5) — приоритет при затухании: важные держим,
- * филлер гаснет первым. Проставляет deep-extractor; без него — нейтральные 0.5.
+ * Add an arc gist. Dedup by arcId: re-processing an arc updates rather than duplicates.
+ * `significance` (0..1, default 0.5) — decay priority: keep the important, filler
+ * fades first. Set by deep-extractor; without it, neutral 0.5.
  * @param {{gist, graphRefs?, voiceQuotes?, arcId, significance?}} g
  */
 export async function addGist(g) {
@@ -48,7 +48,7 @@ export async function addGist(g) {
     significance: clampSig(g.significance),
     addedAt: Date.now(),
   };
-  // если для этой арки уже есть огрызок — заменяем (арка обрабатывается один раз).
+  // if this arc already has a gist, replace it (an arc is processed once).
   const existIdx = arr.findIndex((x) => x.arcId != null && x.arcId === rec.arcId);
   if (existIdx >= 0) arr.splice(existIdx, 1, rec); else arr.push(rec);
 
@@ -57,7 +57,7 @@ export async function addGist(g) {
   return id;
 }
 
-/** Значимость в [0..1]; некорректное → нейтральные 0.5. */
+/** Significance in [0..1]; invalid → neutral 0.5. */
 function clampSig(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0.5;
@@ -65,9 +65,9 @@ function clampSig(v) {
 }
 
 /**
- * Естественное затухание: держим не больше maxGists АКТИВНЫХ. Гасим (active=false,
- * не удаляем — recoverable) сначала наименее значимые, при равной значимости — старые.
- * Так «филлер» уходит раньше важных арок.
+ * Natural decay: keep at most maxGists ACTIVE. Deactivate (active=false, not
+ * deleted — recoverable) the least significant first, ties broken by age (older
+ * first). So filler fades before important arcs.
  */
 function decayOverflow(arr) {
   const max = Math.max(1, getSettings().recollection?.maxGists ?? 12);
@@ -79,8 +79,8 @@ function decayOverflow(arr) {
 }
 
 /**
- * Проставить значимость огрызку арки (deep-extractor, после оценки). Может
- * пере-затухать: новый филлер мог вытеснить кого-то менее значимого. Идемпотентно.
+ * Set an arc gist's significance (deep-extractor, after scoring). May re-run decay:
+ * new filler could push out something less significant. Idempotent.
  */
 export async function setSignificance(arcId, score) {
   const arr = store();
@@ -92,7 +92,7 @@ export async function setSignificance(arcId, score) {
   return true;
 }
 
-/** Тумблер active одного огрызка. */
+/** Toggle the active flag of one gist. */
 export async function setActive(id, active) {
   const r = store().find((x) => x.id === id);
   if (!r) return false;
@@ -101,7 +101,7 @@ export async function setActive(id, active) {
   return true;
 }
 
-/** Bulk: включить/выключить все огрызки арки («забыл эту арку» / «вспомнил»). */
+/** Bulk: enable/disable all gists of an arc ("forgot this arc" / "remembered"). */
 export async function bulkSetArc(arcId, active) {
   let changed = false;
   for (const r of store()) if (r.arcId === arcId) { r.active = !!active; changed = true; }
@@ -109,7 +109,7 @@ export async function bulkSetArc(arcId, active) {
   return changed;
 }
 
-/** Удалить огрызок насовсем. */
+/** Delete a gist permanently. */
 export async function removeGist(id) {
   const arr = store();
   const i = arr.findIndex((x) => x.id === id);
@@ -120,8 +120,8 @@ export async function removeGist(id) {
 }
 
 /**
- * Собрать инъекцию яруса 2 под бюджет токенов (🟢, без LLM).
- * Огрызки (по возрастанию арки) + дословные voiceQuotes. Возвращает строку или ''.
+ * Build the tier-2 injection within a token budget (🟢, no LLM).
+ * Gists (ascending by arc) + verbatim voiceQuotes. Returns a string or ''.
  */
 export async function renderForInjection(budget) {
   const s = getSettings();
@@ -131,8 +131,8 @@ export async function renderForInjection(budget) {
 
   const tokenBudget = budget ?? s.recollection?.budget ?? 500;
 
-  // H5: для >5 активных огрызков применяем MMR-отбор (разнообразие),
-  // иначе — хронологический порядок (старое поведение).
+  // H5: for >5 active gists use MMR selection (diversity); otherwise
+  // chronological order (legacy behavior).
   let selected;
   if (actives.length > 5) {
     const now = Date.now();
@@ -155,7 +155,7 @@ export async function renderForInjection(budget) {
   return `[Recollections — condensed memory of earlier scenes]\n${trimmed}`;
 }
 
-/** Подрезать текст под бюджет токенов (точный счётчик ST при наличии, иначе ~4 симв/токен). */
+/** Trim text to a token budget (ST's exact counter if available, else ~4 chars/token). */
 async function trimToBudget(text, tokenBudget) {
   const lines = String(text).split('\n');
   const c = ctx();
@@ -163,7 +163,7 @@ async function trimToBudget(text, tokenBudget) {
     let out = [];
     for (const l of lines) {
       const candidate = [...out, l].join('\n');
-      // считаем нарастающим итогом; дорого, но строк мало
+      // count cumulatively; costly, but there are few lines
       // eslint-disable-next-line no-await-in-loop
       const n = await c.getTokenCountAsync(candidate, 0).catch(() => candidate.length / 4);
       if (n > tokenBudget) break;

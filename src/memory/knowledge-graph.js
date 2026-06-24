@@ -1,20 +1,20 @@
-// knowledge-graph.js — ярус 3: граф сущностей и связей (Фаза B).
-// Хранится как ОДНА manifest-энтри в привязанной книге (JSON), disable:true —
-// никогда не активируется keyword-сканом (сырой JSON в промпт не попадает), но
-// переживает экспорт/импорт книги и едет вместе с ней.
+// knowledge-graph.js — tier 3: graph of entities and relationships (Phase B).
+// Stored as ONE manifest entry in the bound book (JSON), disable:true — never
+// activated by keyword scan (raw JSON never enters the prompt), but survives
+// book export/import and travels with it.
 //
-// Железное правило #4: граф МЕРЖИТСЯ, не пересобирается. Дедуп — ГИБРИД:
-//   1) код-префильтр (стем имени + пара узлов) сужает до соседей-кандидатов;
-//   2) дешёвая ИИ решает update|create на этом МАЛОМ наборе (семантика:
-//      «Рен доверяет Сейбл» == «Сейбл заслужила доверие Рена»);
-//   3) код применяет идемпотентно; provenance {arcId:вклад} хранит вклад каждой
-//      арки — для отката (invalidateArc) без перезапуска нижележащих арок.
-// Тип-гард: узлы разных типов (character/location) НЕ сливаются.
+// Hard rule #4: the graph is MERGED, not rebuilt. Dedup is HYBRID:
+//   1) code prefilter (name stem + node pair) narrows to candidate neighbors;
+//   2) a cheap LLM decides update|create on that SMALL set (semantic, e.g.
+//      "Ren trusts Sable" == "Sable earned Ren's trust");
+//   3) code applies idempotently; provenance {arcId:contribution} tracks each
+//      arc's contribution — for rollback (invalidateArc) without rerunning others.
+// Type guard: nodes of different types (character/location) do NOT merge.
 //
-// Всё тяжёлое (LLM-мёрж) идёт из job-queue, вне критического пути. Чтение для
-// инъекции (neighborhood/serialize) — чистый код, БЕЗ LLM.
+// All heavy work (LLM merge) runs from the job queue, off the critical path.
+// Reads for injection (neighborhood/serialize) are pure code, NO LLM.
 //
-// Метки: 🟡 мёрж · 🟢 чтение. Деградация: нет LLM → код-дедуп по точному совпадению.
+// Markers: 🟡 merge · 🟢 read. Degradation: no LLM → code dedup by exact match.
 
 import { getSettings } from '../core/settings.js';
 import { casWrite, ENTRY_TEMPLATE } from '../lorebook/lorebook-writer.js';
@@ -30,7 +30,7 @@ const MANIFEST_RE = /tier=manifest/i;
 
 const EMPTY = () => ({ nodes: {}, edges: [] });
 
-// --- Поиск/создание manifest-энтри в книге ---
+// --- Find/create the manifest entry in the book ---
 function findManifest(data) {
   for (const e of Object.values(data.entries || {})) {
     if (MANIFEST_RE.test(String(e.comment ?? '')) && (e.key ?? []).includes(MANIFEST_KEY)) return e;
@@ -38,7 +38,7 @@ function findManifest(data) {
   return null;
 }
 
-/** Прочитать граф из книги. Возвращает {nodes,edges} (пустой при отсутствии). */
+/** Read the graph from the book. Returns {nodes,edges} (empty if absent). */
 export async function loadGraph() {
   const book = getBoundBookName();
   if (!book) return EMPTY();
@@ -52,30 +52,30 @@ export async function loadGraph() {
   } catch { return EMPTY(); }
 }
 
-/** Записать граф в manifest-энтри (под мьютексом writer'а, через casWrite). */
+/** Write the graph to the manifest entry (under the writer mutex, via casWrite). */
 async function saveGraph(g) {
   return casWrite(null, async (data) => {
     let ent = findManifest(data);
     const content = JSON.stringify({ nodes: g.nodes, edges: g.edges });
     if (!ent) {
-      // создаём новую ОТКЛЮЧЁННУЮ энтри-контейнер (полный шаблон WI-записи)
+      // create a new DISABLED container entry (full WI-record template)
       let uid = 0; while (uid in data.entries) uid++;
       data.entries[uid] = {
         ...structuredClone(ENTRY_TEMPLATE), uid,
         key: [MANIFEST_KEY], content,
         comment: '[CL origin=graph tier=manifest]',
-        disable: true,        // никогда не активируется keyword-сканом
+        disable: true,        // never activated by keyword scan
       };
     } else {
-      if (ent.content === content) return false;     // без изменений — не пишем
+      if (ent.content === content) return false;     // unchanged — skip write
       ent.content = content;
-      ent.disable = true;                            // граф не должен инжектиться как есть
+      ent.disable = true;                            // graph must not be injected as-is
     }
     return true;
   });
 }
 
-// --- Узлы ---
+// --- Nodes ---
 function nodeId(name) { return entityKey(name); }
 
 function upsertNode(g, name, type, arcId) {
@@ -84,7 +84,7 @@ function upsertNode(g, name, type, arcId) {
   const cur = g.nodes[id];
   if (cur) {
     if ((!cur.type || cur.type === 'unknown') && type && type !== 'unknown') cur.type = type;
-    // запомним поверхностную форму как алиас (для alias-aware матча сцены)
+    // remember the surface form as an alias (for alias-aware scene matching)
     if (name && cur.name !== name && !(cur.aliases || []).includes(name)) {
       cur.aliases = [...(cur.aliases || []), name].slice(0, 6);
     }
@@ -99,10 +99,10 @@ function upsertNode(g, name, type, arcId) {
   return id;
 }
 
-// --- Рёбра ---
+// --- Edges ---
 function relStem(rel) { return stem(String(rel || 'related').toLowerCase()); }
 
-/** Кандидаты-рёбра для гибрид-мёржа: та же пара узлов в любом направлении. */
+/** Candidate edges for hybrid merge: same node pair in either direction. */
 function candidateEdges(g, from, to) {
   return g.edges
     .map((e, i) => ({ e, i }))
@@ -119,11 +119,11 @@ function bumpEdge(edge, weight, arcId) {
 }
 
 /**
- * Гибрид-мёрж триплетов в граф. Идемпотентно, с provenance по арке.
+ * Hybrid merge of triples into the graph. Idempotent, with per-arc provenance.
  * @param {{arcId:number, triples:Array<{from,rel,to,weight,fromType?,toType?}>, suspectPairs?:Array<[string,string]>}} payload
- * `suspectPairs` (от deep-extractor): пары node-id, чьи рёбра помечаем suspect ([?])
- * — дрейф/противоречие, требует разбора. Мечаем ПОСЛЕ мёржа (иначе bumpEdge снимет).
- * Вызывается как обработчик job 'graph-merge'.
+ * `suspectPairs` (from deep-extractor): node-id pairs whose edges we mark suspect
+ * ([?]) — drift/contradiction needing review. Marked AFTER merge (else bumpEdge clears it).
+ * Invoked as the 'graph-merge' job handler.
  */
 export async function addTriples(payload) {
   const { triples, arcId, suspectPairs } = payload || {};
@@ -132,7 +132,7 @@ export async function addTriples(payload) {
   if (s.graph?.enabled === false) return false;
 
   const g = await loadGraph();
-  const nodes0 = Object.keys(g.nodes).length;   // для дельты в ленте активности
+  const nodes0 = Object.keys(g.nodes).length;   // for the delta in the activity log
   const edges0 = g.edges.length;
 
   for (const t of triples) {
@@ -144,17 +144,17 @@ export async function addTriples(payload) {
     const rs = relStem(t.rel);
     const cands = candidateEdges(g, fromId, toId);
 
-    // 1) Точное совпадение направления+отношения → апдейт (без LLM).
+    // 1) Exact match of direction+relation → update (no LLM).
     const exact = cands.find(({ e }) => e.from === fromId && e.to === toId && relStem(e.rel) === rs);
     if (exact) { bumpEdge(exact.e, t.weight, arcId); continue; }
 
-    // 2) Гибрид: есть кандидаты (другое отношение/направление) → дешёвая ИИ решает.
+    // 2) Hybrid: candidates exist (other relation/direction) → cheap LLM decides.
     let merged = false;
     if (cands.length && s.autonomous?.enabled) {
       const decision = await decideMerge(t, cands.map(({ e }) => e)).catch(() => null);
       if (decision && decision.matchIndex != null && cands[decision.matchIndex]) {
         const edge = cands[decision.matchIndex].e;
-        // тип-гард уже обеспечен парой узлов; принимаем каноническое отношение
+        // type guard already ensured by the node pair; accept the canonical relation
         if (decision.rel) edge.rel = decision.rel;
         bumpEdge(edge, t.weight, arcId);
         merged = true;
@@ -162,7 +162,7 @@ export async function addTriples(payload) {
     }
     if (merged) continue;
 
-    // 3) Новое ребро.
+    // 3) New edge.
     g.edges.push({
       from: fromId, to: toId, rel: String(t.rel || 'related'),
       weight: Math.max(1, Math.min(10, t.weight || 5)),
@@ -170,7 +170,7 @@ export async function addTriples(payload) {
     });
   }
 
-  // Пометить дрейф-пары suspect (после мёржа, чтобы bumpEdge не снял флаг).
+  // Mark drift pairs suspect (after merge, so bumpEdge doesn't clear the flag).
   if (Array.isArray(suspectPairs) && suspectPairs.length) {
     for (const [a, b] of suspectPairs) {
       if (!a || !b) continue;
@@ -192,7 +192,7 @@ export async function addTriples(payload) {
   return saveGraph(g);
 }
 
-/** Дешёвая ИИ: эквивалентен ли новый триплет одному из кандидатов? */
+/** Cheap LLM: is the new triple equivalent to one of the candidates? */
 async function decideMerge(triple, candidates) {
   const { agentRequest, parseJsonLoose } = await import('../llm/llm-service.js');
   const { noteLlmCall } = await import('../core/job-queue.js');
@@ -209,8 +209,8 @@ async function decideMerge(triple, candidates) {
   return { matchIndex: (typeof mi === 'number' && mi >= 0) ? mi : null, rel: parsed.rel };
 }
 
-// --- Эго-граф (чтение, БЕЗ LLM) ---
-/** Узлы, достижимые из имён сущностей за hops шагов по активным рёбрам. */
+// --- Ego graph (read, NO LLM) ---
+/** Nodes reachable from entity names within `hops` steps over active edges. */
 export function neighborhood(g, entityNames, hops = 2) {
   const ids = new Set();
   const seed = (entityNames || []).map(nodeId).filter((id) => id && g.nodes[id]);
@@ -229,7 +229,7 @@ export function neighborhood(g, entityNames, hops = 2) {
   return ids;
 }
 
-/** Сериализовать подграф компактными триплетами под бюджет (🟢, для инъекции). */
+/** Serialize a subgraph as compact triples within budget (🟢, for injection). */
 export function serializeSubgraph(g, nodeIds, budgetTokens) {
   const idset = nodeIds instanceof Set ? nodeIds : new Set(nodeIds || []);
   if (!idset.size) return '';
@@ -245,7 +245,7 @@ export function serializeSubgraph(g, nodeIds, budgetTokens) {
     lines.push(`${name(e.from)} —${e.rel}→ ${name(e.to)}${meta ? ` (${meta})` : ''}${e.suspect ? ' [?]' : ''}`);
   }
   if (!lines.length) return '';
-  // грубый бюджет: ~4 символа/токен
+  // rough budget: ~4 chars/token
   const charBudget = Math.max(200, (budgetTokens || 1500) * 4);
   let out = '';
   for (const l of lines) { if (out.length + l.length + 1 > charBudget) break; out += (out ? '\n' : '') + l; }
@@ -257,11 +257,11 @@ function sinceArc(e) {
   return ks.length ? Math.min(...ks) : null;
 }
 
-// --- Инвалидация (откат вклада dirty-арки) ---
+// --- Invalidation (roll back a dirty arc's contribution) ---
 /**
- * Вычесть вклад арки. Ребро удаляем ТОЛЬКО если у него не осталось других
- * арок-источников; иначе оставляем (provenance держит другие арки). Каскад
- * ограничен рёбрами, чей единственный источник — эта арка.
+ * Subtract an arc's contribution. Remove an edge ONLY if no other source arcs
+ * remain; otherwise keep it (provenance still holds other arcs). The cascade is
+ * limited to edges whose sole source is this arc.
  */
 export async function invalidateArc(arcId) {
   if (arcId == null) return false;
@@ -273,8 +273,8 @@ export async function invalidateArc(arcId) {
     delete e.provenance[arcId];
     changed = true;
     const remaining = Object.keys(e.provenance).length;
-    if (remaining === 0) continue;                 // единственный источник — арка N → удаляем
-    // другие арки ещё держат ребро; вес мог быть завышен → помечаем suspect (в аудит)
+    if (remaining === 0) continue;                 // sole source was this arc → drop
+    // other arcs still hold the edge; weight may be inflated → mark suspect (for audit)
     e.suspect = true;
     kept.push(e);
   }
@@ -283,30 +283,30 @@ export async function invalidateArc(arcId) {
   return saveGraph(g);
 }
 
-// --- Холодные узлы / потолок ---
+// --- Cold nodes / cap ---
 
 /**
- * Вероятностное слияние алиасов: если два разных nodeId имеют ≥2 общих рёбер
- * к одному и тому же третьему узлу с одинаковым отношением — это, вероятно,
- * один и тот же персонаж (вариации имени / опечатка). Меньший узел сливается
- * в больший (по числу provenance), все рёбра перенаправляются.
+ * Probabilistic alias merge: if two distinct nodeIds share ≥2 edges to the same
+ * third node with the same relation, they're probably the same character (name
+ * variant / typo). The smaller node (by provenance count) merges into the larger,
+ * and all edges are redirected.
  *
- * Самокалибрующийся: не опирается на словари имён, только на структуру графа.
- * Порог (≥2 общих соседа) выбран консервативно — одно совпадение может быть
- * случайным (друзья одного персонажа), два уже статистически значимо.
+ * Self-calibrating: relies on graph structure, not name dictionaries. The
+ * threshold (≥2 shared neighbors) is conservative — one match could be chance
+ * (friends of one character), two is already statistically significant.
  */
 function probabilisticAliasMerge(g) {
   const ids = Object.keys(g.nodes);
-  if (ids.length < 3) return; // нужно хотя бы 3 узла для осмысленного слияния
+  if (ids.length < 3) return; // need at least 3 nodes for a meaningful merge
 
-  // Для каждой пары узлов считаем общих соседей с одинаковым отношением.
+  // For each node pair, count shared neighbors with the same relation.
   const pairs = [];
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
       const a = ids[i], b = ids[j];
       const aNeighbors = neighborSet(g, a);
       const bNeighbors = neighborSet(g, b);
-      // Считаем пересечение: {target}_{rel} совпадения
+      // Count the intersection: {target}_{rel} matches
       let shared = 0;
       for (const n of aNeighbors) {
         if (bNeighbors.has(n)) shared++;
@@ -315,7 +315,7 @@ function probabilisticAliasMerge(g) {
     }
   }
 
-  // Сливаем от меньшего к большему (по сумме provenance).
+  // Merge smaller into larger (by total provenance).
   for (const { a, b } of pairs) {
     const nodeA = g.nodes[a], nodeB = g.nodes[b];
     if (!nodeA || !nodeB) continue;
@@ -324,15 +324,15 @@ function probabilisticAliasMerge(g) {
     const [keep, absorb] = sizeA >= sizeB ? [a, b] : [b, a];
     if (!g.nodes[keep] || !g.nodes[absorb]) continue;
 
-    // Перенаправить все рёбра от absorb → keep.
+    // Redirect all edges from absorb → keep.
     for (const e of g.edges) {
       if (e.from === absorb) e.from = keep;
       if (e.to === absorb) e.to = keep;
     }
-    // Удалить self-рёбра, возникшие после перенаправления.
+    // Drop self-edges created by the redirect.
     g.edges = g.edges.filter((e) => e.from !== e.to);
 
-    // Перенести алиасы поглощённого узла.
+    // Carry over the absorbed node's aliases.
     const absorbedNode = g.nodes[absorb];
     if (absorbedNode && g.nodes[keep]) {
       g.nodes[keep].aliases = [...new Set([
@@ -344,12 +344,12 @@ function probabilisticAliasMerge(g) {
     }
     delete g.nodes[absorb];
 
-    // Удалить дубликаты рёбер (одинаковые from+to+rel), суммируя provenance.
+    // Remove duplicate edges (same from+to+rel), summing provenance.
     dedupeEdges(g);
   }
 }
 
-/** Набор строк "{target}_{relStem}" для всех рёбер, инцидентных узлу. */
+/** Set of "{target}_{relStem}" strings for all edges incident to a node. */
 function neighborSet(g, nodeId) {
   const set = new Set();
   for (const e of g.edges) {
@@ -359,7 +359,7 @@ function neighborSet(g, nodeId) {
   return set;
 }
 
-/** Сумма provenance-счётчиков по всем рёбрам, инцидентным узлу (грубая «масса» узла). */
+/** Sum of provenance counts over all edges incident to a node (rough node "mass"). */
 function totalProvenance(g, nodeId) {
   let sum = 0;
   for (const e of g.edges) {
@@ -369,7 +369,7 @@ function totalProvenance(g, nodeId) {
   return sum || 1;
 }
 
-/** Удалить дубликаты рёбер: одинаковые from+to+rel → суммировать provenance, взять max weight. */
+/** Dedup edges: same from+to+rel → sum provenance, take max weight. */
 function dedupeEdges(g) {
   const seen = new Map();
   const out = [];
@@ -403,7 +403,7 @@ function capNodesInPlace(g) {
   const cap = getSettings().graph?.maxNodes ?? 40;
   const live = Object.entries(g.nodes).filter(([, n]) => !n.archived);
   if (live.length <= cap) return;
-  // архивируем самые холодные сверх потолка
+  // archive the coldest beyond the cap
   live.sort((a, b) => (a[1].lastActive ?? 0) - (b[1].lastActive ?? 0));
   for (let i = 0; i < live.length - cap; i++) g.nodes[live[i][0]].archived = true;
 }
@@ -413,7 +413,7 @@ function maxArc(g) {
   return m;
 }
 
-/** Архивировать холодные узлы (вызов из обслуживания/джобы). */
+/** Archive cold nodes (called from maintenance/job). */
 export async function archiveCold(currentArc) {
   const g = await loadGraph();
   archiveColdInPlace(g, currentArc);
@@ -422,9 +422,9 @@ export async function archiveCold(currentArc) {
 }
 
 /**
- * Пометить рёбра suspect ([?]) по парам узлов (Фаза D — дорогой аудит). Зеркалит
- * suspectPairs-путь из addTriples, но как самостоятельный писатель. Пары — id узлов
- * в любом направлении. No-op при пустом вводе.
+ * Mark edges suspect ([?]) by node pairs (Phase D — expensive audit). Mirrors the
+ * suspectPairs path in addTriples, but as a standalone writer. Pairs are node ids
+ * in either direction. No-op on empty input.
  * @param {Array<[string,string]>} pairs
  * @returns {Promise<boolean>}
  */
@@ -445,7 +445,7 @@ export async function markSuspect(pairs) {
   return saveGraph(g);
 }
 
-/** Краткая статистика для статус-строки UI (🟢). */
+/** Brief stats for the UI status line (🟢). */
 export async function getStats() {
   const g = await loadGraph();
   const nodes = Object.values(g.nodes).filter((n) => !n.archived).length;

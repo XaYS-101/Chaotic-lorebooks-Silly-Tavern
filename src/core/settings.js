@@ -1,26 +1,26 @@
-// settings.js — настройки расширения: дефолты + merge + сохранение.
-// Всё 🟢. Паттерн merge переживает обновления расширения (новые поля
-// добавляются к старым настройкам пользователя без потери его значений).
+// settings.js — extension settings: defaults + merge + persistence.
+// All 🟢. The merge pattern survives extension updates (new fields are added to
+// the user's old settings without losing their values).
 
 export const MODULE_NAME = 'chaoticLorebooks';
 
-// Object.freeze, чтобы дефолты случайно не мутировали.
+// Object.freeze so the defaults can't be mutated by accident.
 const DEFAULTS = Object.freeze({
   enabled: true,
 
-  // Режим одним пикером (анти-перегруз UI): задаёт вменяемые дефолты.
-  // 'lite' = без фоновой LLM-работы · 'balanced' = scout-ретрив · 'autonomous' = полный (Фаза 4).
+  // Single-picker mode (anti UI-overload): sets sensible defaults.
+  // 'lite' = no background LLM work · 'balanced' = scout retrieval · 'autonomous' = full (Phase 4).
   mode: 'balanced',
 
-  // Язык интерфейса расширения: 'auto' = как в SillyTavern (localStorage['language']),
-  // 'en' / 'ru' = жёстко. Читается в i18n.js (getLang). Только UI; промпты не трогает.
+  // Extension UI language: 'auto' = follow SillyTavern (localStorage['language']),
+  // 'en' / 'ru' = forced. Read in i18n.js (getLang). UI only; never touches prompts.
   uiLanguage: 'auto',
 
-  // --- Двухмодельная архитектура ---
-  // Пустая строка = использовать текущее активное подключение ST.
-  // Иначе — имя ST Connection Profile, которым работает ФОНОВЫЙ агент
-  // (сбор инфы, выбор веток, обновление буфера). Основной ответ всегда
-  // идёт обычной моделью пользователя — мы её не трогаем.
+  // --- Two-model architecture ---
+  // Empty string = use ST's current active connection.
+  // Otherwise — the ST Connection Profile name used by the BACKGROUND agent
+  // (gathering info, picking branches, updating the buffer). The main reply
+  // always goes through the user's normal model — we don't touch it.
   agentProfile: '',
 
   // What the background agent uses: 'st' = ST Connection Profile (agentProfile),
@@ -34,221 +34,221 @@ const DEFAULTS = Object.freeze({
     activeProfileId: null,
   },
 
-  // --- Авто-лорбук ---
-  // Спрашивать при первом запуске в чате без книги (выбрать/создать/отмена).
+  // --- Auto-lorebook ---
+  // Ask on first use in a chat with no book (pick/create/cancel).
   askOnFirstUse: true,
   lorebookNameTemplate: '🌀 {{char}} — {{chat}}',
 
-  // --- Агент / ретрив ---
-  // 'recency' = дешёвый 🟢 фолбэк (свежесть + ключевые слова, без LLM).
-  // 'agent'   = 🟡 scout-агент выбирает ветки и глубину дерева.
+  // --- Agent / retrieval ---
+  // 'recency' = cheap 🟢 fallback (recency + keywords, no LLM).
+  // 'agent'   = 🟡 scout agent picks branches and tree depth.
   retrievalMode: 'recency',
-  // Потолок: будить агента не реже раза в N ходов (детектор сцены может чаще).
+  // Ceiling: wake the agent at least once per N turns (scene detector may fire more often).
   agentEveryNTurns: 3,
 
-  // --- Детектор сцены (🟢, без LLM) ---
+  // --- Scene detector (🟢, no LLM) ---
   sceneDetector: {
-    algo: 'adaptive',    // 'adaptive' = IDF-косинус + онлайн z-порог + CUSUM; 'legacy' = старый Jaccard+фикс.порог
-    sensitivity: 0.5,    // 0 = редко считаем сдвигом, 1 = агрессивно (в adaptive мапится в z-порог k=2−sens·1.5)
-    newWordRatio: 0.5,   // (legacy/warmup) доля новых слов в окне → динамический троттлинг агента
-    maxTurnsCap: 8,      // never-starve: даже в статичной сцене будим раз в N ходов
-    ewmaAlpha: 0.2,      // adaptive: коэффициент EWMA для онлайн-среднего/дисперсии дис-similarity (~окно 5 ходов)
-    cusumSlack: 0.5,     // adaptive: κ — «мёртвая зона» CUSUM в единицах σ (гасит мелкий шум)
-    cusumThreshold: 5,   // adaptive: h — порог накопителя CUSUM в единицах σ (устойчивый сдвиг)
-    warmupTurns: 4,      // adaptive: первые N ходов идём по legacy, пока копится статистика
+    algo: 'adaptive',    // 'adaptive' = IDF-cosine + online z-threshold + CUSUM; 'legacy' = old Jaccard + fixed threshold
+    sensitivity: 0.5,    // 0 = rarely treat as a shift, 1 = aggressive (in adaptive, maps to z-threshold k=2−sens·1.5)
+    newWordRatio: 0.5,   // (legacy/warmup) share of new words in window → dynamic agent throttling
+    maxTurnsCap: 8,      // never-starve: wake at least once per N turns even in a static scene
+    ewmaAlpha: 0.2,      // adaptive: EWMA coefficient for online mean/variance of dissimilarity (~5-turn window)
+    cusumSlack: 0.5,     // adaptive: κ — CUSUM "dead zone" in units of σ (damps minor noise)
+    cusumThreshold: 5,   // adaptive: h — CUSUM accumulator threshold in units of σ (sustained shift)
+    warmupTurns: 4,      // adaptive: first N turns run legacy while statistics accumulate
   },
 
-  // --- Буфер мыслей ---
+  // --- Thought buffer ---
   thoughtBuffer: {
     enabled: true,
-    limitEnabled: true,   // ограничивать ли размер буфера (юзер решает)
-    maxItems: 7,          // лимит размера, если limitEnabled (анти-зацикленность)
-    decayPerTurn: 1,      // на сколько падает вес неподтверждённого пункта за ход
-    dropThreshold: 0,     // вес <= порога → пункт выпадает из буфера
-    startWeight: 5,       // вес нового/подтверждённого пункта
+    limitEnabled: true,   // whether to cap buffer size (user's choice)
+    maxItems: 7,          // size cap when limitEnabled (anti-loop)
+    decayPerTurn: 1,      // how much an unconfirmed item's weight drops per turn
+    dropThreshold: 0,     // weight <= threshold → item drops out of the buffer
+    startWeight: 5,       // weight of a new/confirmed item
   },
 
-  // --- Избранное / сохранённые вырезки ---
+  // --- Favorites / saved clips ---
   favorites: {
     enabled: true,
-    maxInContext: 8,      // сколько permanent-пунктов вкладывать максимум
+    maxInContext: 8,      // max permanent items to inject
   },
 
-  // --- Цитаты (части соо) ---
+  // --- Quotes (parts of messages) ---
   quotes: {
-    defaultMode: 'chance', // режим новой цитаты: permanent|chance|relevant
+    defaultMode: 'chance', // new-quote mode: permanent|chance|relevant
   },
 
-  // --- Ресёрфинг воспоминаний ---
-  // Иногда ближе к концу контекста всплывает закреплённая вырезка как
-  // «воспоминание». В v1 дешёвая ИИ добавит строку «как это вписывается».
+  // --- Memory resurfacing ---
+  // Occasionally a pinned clip resurfaces near the end of context as a
+  // "memory". In v1 the cheap AI adds a "how this fits" line.
   resurfacing: {
-    enabled: false,       // по умолчанию выключено (рандом ломает погружение)
-    chance: 0.15,         // вероятность всплытия за ход
-    depth: 4,             // глубина инъекции (ближе к свежим соо: 3-4)
+    enabled: false,       // off by default (randomness breaks immersion)
+    chance: 0.15,         // resurface probability per turn
+    depth: 4,             // injection depth (near recent messages: 3-4)
   },
 
   // --- UI ---
   slashPrefix: 'cl',
 
-  // ============ Фаза A — фундамент ============
-  // Фоновый воркер (job-queue). enabled=false → фоновые джобы не выполняются
-  // (буфер/избранное/ретрив работают без него).
+  // ============ Phase A — foundation ============
+  // Background worker (job-queue). enabled=false → background jobs don't run
+  // (buffer/favorites/retrieval still work without it).
   autonomous: {
-    enabled: false,        // включается, когда юзер готов к авто-памяти
-    arcCapMessages: 40,    // дублирует arc.capMessages для пресета режима
-    concurrency: 1,        // 1-2 параллельных джобы
-    callsPerHour: 30,      // budget cap на платные LLM-вызовы
+    enabled: false,        // turned on when the user is ready for auto-memory
+    arcCapMessages: 40,    // mirrors arc.capMessages for the mode preset
+    concurrency: 1,        // 1-2 parallel jobs
+    callsPerHour: 30,      // budget cap on paid LLM calls
   },
 
-  // Авто-скрытие старых соо пластами по арке (держит активное окно маленьким).
+  // Auto-hide old messages by arc slab (keeps the active window small).
   autoHide: {
     enabled: true,
-    windowSize: 12,        // «живое окно»: сколько свежих соо ВСЕГДА видимы (default-window)
-    bySlab: true,          // скрывать целой аркой, не по одному
-    keepTailFromSlab: 2,   // мост: оставить N соо новейшего скрываемого пласта
-    afterSummary: true,    // прятать арку ТОЛЬКО когда у неё есть summaryGist (безопасное скрытие)
-    scope: 'slab',         // 'slab' = прятать весь суммаризованный пласт · 'newest' = только новейший
+    windowSize: 12,        // "live window": how many recent messages stay ALWAYS visible (default-window)
+    bySlab: true,          // hide a whole arc, not one at a time
+    keepTailFromSlab: 2,   // bridge: keep N messages of the newest hidden slab
+    afterSummary: true,    // hide an arc ONLY once it has a summaryGist (safe hiding)
+    scope: 'slab',         // 'slab' = hide the whole summarized slab · 'newest' = only the newest
   },
 
-  // Нарезка арок.
+  // Arc segmentation.
   arc: {
-    capMessages: 40,       // длина арки в соо до запечатывания
-    useMarkers: true,      // явная команда /cl-arc как граница
-    useSceneBreaks: false, // рисованные разделители (---, ***, timeskip) как граница (по умолч. выкл.)
-    minMessages: 6,        // маркер не запечатывает арку короче этого (анти-короткие арки)
-    useStoryTime: false,   // внутриигровое время как граница (опц.)
-    editDirtyThreshold: 0.10, // < этой доли изменённых слов → опечатка, арку не метим
+    capMessages: 40,       // arc length in messages before sealing
+    useMarkers: true,      // explicit /cl-arc command as a boundary
+    useSceneBreaks: false, // drawn separators (---, ***, timeskip) as a boundary (off by default)
+    minMessages: 6,        // a marker won't seal an arc shorter than this (anti short-arcs)
+    useStoryTime: false,   // in-story time as a boundary (optional)
+    editDirtyThreshold: 0.10, // < this share of changed words → typo, arc not marked
   },
 
   // Catch-up backfill for chats enabled late (offer auto-clears once memory grows
   // forward or backfill runs).
   backfill: {
-    threshold: 10,         // длина чата, выше которой предлагаем разовый backfill
+    threshold: 10,         // chat length above which a one-time backfill is offered
   },
 
-  // Бэкапы книги.
+  // Lorebook backups.
   backup: {
     enabled: true,
-    keepCount: 8,          // rolling: сколько снапшотов держать
-    safetyBeforeOps: true, // снапшот перед опасной авто-операцией
+    keepCount: 8,          // rolling: how many snapshots to keep
+    safetyBeforeOps: true, // snapshot before a risky auto-operation
   },
 
-  // ============ Фаза B — граф ссылок + ярусы памяти ============
-  // Извлечение (саммари арки + триплеты). Работает ТОЛЬКО при autonomous.enabled
-  // (платные LLM-вызовы идут через job-queue, вне критического пути).
+  // ============ Phase B — relationship graph + memory tiers ============
+  // Extraction (arc summary + triples). Runs ONLY when autonomous.enabled
+  // (paid LLM calls go through job-queue, off the critical path).
   extraction: {
-    enabled: true,         // мастер-тумблер конвейера извлечения
+    enabled: true,         // master toggle for the extraction pipeline
   },
 
-  // ============ Фаза C — глубокое извлечение (значимость + дрейф) ============
-  // Допроход поверх arc-summary: СТРОГИЙ allow-list триплетов (анти-галлюцинация),
-  // оценка значимости арки (авто-пин/деприоритет) и дешёвый флаг дрейфа.
-  // Работает только при autonomous.enabled; вне крит. пути (job-queue).
+  // ============ Phase C — deep extraction (significance + drift) ============
+  // Extra pass over arc-summary: STRICT triple allow-list (anti-hallucination),
+  // arc significance scoring (auto-pin/deprioritize) and a cheap drift flag.
+  // Runs only when autonomous.enabled; off the critical path (job-queue).
   deepExtract: {
-    enabled: false,        // включается в autonomous (мастер-тумблер допрохода)
-    llmMode: 'hybrid',     // 'code' = 0 LLM · 'hybrid' = код + дешёвая ИИ на спорный дрейф · 'full' = LLM-проход
-    pinThreshold: 0.7,     // значимость ≥ → авто-пин арки (tier=pinned)
-    lowThreshold: 0.3,     // значимость < → «филлер» (быстрее гаснет в recollection); внутр.
+    enabled: false,        // turned on in autonomous (master toggle for the extra pass)
+    llmMode: 'hybrid',     // 'code' = 0 LLM · 'hybrid' = code + cheap AI on ambiguous drift · 'full' = LLM pass
+    pinThreshold: 0.7,     // significance ≥ → auto-pin arc (tier=pinned)
+    lowThreshold: 0.3,     // significance < → "filler" (fades faster in recollection); internal
   },
 
-  // Дрейф-монитор: дешёвый флаг на арку (контр-связь vs установленное ребро) +
-  // дорогой кросс-арочный аудит всего графа (Фаза D, только autonomous).
+  // Drift monitor: cheap per-arc flag (counter-link vs established edge) +
+  // expensive cross-arc audit of the whole graph (Phase D, autonomous only).
   drift: {
-    cheapEnabled: true,         // считать дешёвый флаг дрейфа на запечатывании арки
-    sensitivity: 0.5,           // 0 = редко флагуем, 1 = агрессивно
-    auditEnabled: true,         // периодический дорогой аудит (ОДИН LLM-проход; только autonomous)
-    auditEveryNMessages: 500,   // ~раз в N устоявшихся ходов → enqueue 'audit-expensive'
+    cheapEnabled: true,         // compute the cheap drift flag on arc seal
+    sensitivity: 0.5,           // 0 = rarely flag, 1 = aggressive
+    auditEnabled: true,         // periodic expensive audit (ONE LLM pass; autonomous only)
+    auditEveryNMessages: 500,   // ~once per N settled turns → enqueue 'audit-expensive'
   },
 
-  // Ярус 2 — «воспоминания»: сжатые огрызки запечатанных арок + voiceQuotes.
+  // Tier 2 — "recollections": condensed gists of sealed arcs + voiceQuotes.
   recollection: {
     enabled: true,
-    maxGists: 12,          // сколько активных огрызков держать (старые гаснут)
-    voiceQuotesPerArc: 3,  // дословных реплик на арку (держат стиль персонажа)
-    budget: 500,           // потолок токенов инъекции яруса 2
+    maxGists: 12,          // how many active gists to keep (old ones fade)
+    voiceQuotesPerArc: 3,  // verbatim lines per arc (preserve character voice)
+    budget: 500,           // token ceiling for tier 2 injection
   },
 
-  // Ярус 3 — граф ссылок (узлы/рёбра в manifest-энтри книги).
+  // Tier 3 — relationship graph (nodes/edges in the book's manifest entry).
   graph: {
     enabled: true,
-    maxNodes: 40,          // мягкий потолок узлов (archiveCold косит холодные)
-    subgraphHops: 2,       // глубина BFS вокруг сущностей сцены (эго-граф)
-    budget: 1500,          // потолок токенов инъекции подграфа
-    archiveColdAfterArcs: 8, // узел без активности N арок → archived (вне инъекции)
+    maxNodes: 40,          // soft node ceiling (archiveCold prunes cold ones)
+    subgraphHops: 2,       // BFS depth around scene entities (ego-graph)
+    budget: 1500,          // token ceiling for subgraph injection
+    archiveColdAfterArcs: 8, // node idle for N arcs → archived (out of injection)
   },
 
-  // Куда (глубина) класть блоки инъекции ярусов. Дефолты вменяемые; конфликт с
-  // Author's Note/Summarize → юзер двигает.
+  // Where (depth) to place tier injection blocks. Defaults are sensible; on a
+  // conflict with Author's Note/Summarize the user adjusts.
   placement: {
     depthRecollection: 4,
     depthGraph: 5,
   },
 
-  // ============ Фаза D — бюджет контекста ============
-  // Один жёсткий потолок токенов на ВСЮ инъекцию памяти (буфер+избранное+огрызки+
-  // граф+оглавление). Заполнение по приоритету ярусов; переполнение → condense
-  // (роняет целые строки, не режет фразу), низшие ярусы падают первыми. Чистый код,
-  // без LLM. Выкл → каждый ярус режется своим бюджетом как раньше (общего лимита нет).
+  // ============ Phase D — context budget ============
+  // One hard token ceiling over ALL memory injection (buffer+favorites+gists+
+  // graph+ToC). Fills by tier priority; on overflow → condense (drops whole lines,
+  // never mid-sentence), lowest tiers drop first. Pure code, no LLM. Off → each tier
+  // is trimmed by its own budget as before (no global cap).
   contextBudget: {
-    enabled: false,        // мастер-тумблер глобального потолка
-    target: 3000,          // потолок токенов на весь «бандл памяти»
-    autoReview: true,      // авто-подсветка «Пересмотра» при насыщении бюджета
+    enabled: false,        // master toggle for the global ceiling
+    target: 3000,          // token ceiling for the whole "memory bundle"
+    autoReview: true,      // auto-highlight "Review" when the budget is full
   },
 
-  // ============ Фаза D — двухстадийный конвейер §4b (Stage-1 «движок памяти») ============
-  // Дешёвая модель собирает ядро памяти (огрызки+подграф+ретрив) и отдаёт дорогой
-  // (= нативной генерации ST) только дистиллят. Здесь только Stage-1 — Stage-2 (писатель)
-  // это сама ST. Кэш ядра по сцене (на статике не пересобираем) + опц. Compose-проход.
-  // Выкл → инъекция как v0.9.0 (всегда свежая сборка, без кэша/compose).
+  // ============ Phase D — two-stage pipeline §4b (Stage-1 "memory engine") ============
+  // The cheap model assembles the memory core (gists+subgraph+retrieval) and hands the
+  // expensive side (= ST's native generation) only a distillate. This is Stage-1 only —
+  // Stage-2 (the writer) is ST itself. Per-scene core cache (no rebuild on static scenes)
+  // + optional Compose pass. Off → injection behaves like v0.9.0 (fresh build, no cache/compose).
   pipeline: {
-    enabled: false,        // scene-gated движок памяти + кэш ядра (включается в autonomous)
-    composeLLM: false,     // call 2: Compose/Compress дешёвой ИИ (иначе код-сжатие). Опционально.
+    enabled: false,        // scene-gated memory engine + core cache (turned on in autonomous)
+    composeLLM: false,     // call 2: Compose/Compress with cheap AI (else code compression). Optional.
   },
 
-  // ============ Фаза D — лента активности ============
-  // Видимая локальная лента фоновых действий (запечатки арок, извлечение, мёрж
-  // графа, дрейф, аудиты). Чистая бухгалтерия: НЕ LLM, НЕ пишет в книгу, НЕ трогает
-  // инъекцию. По умолчанию ВКЛ (вся суть — прозрачность). Хранится per-chat.
+  // ============ Phase D — activity feed ============
+  // Visible local feed of background actions (arc seals, extraction, graph merges,
+  // drift, audits). Pure bookkeeping: NO LLM, NO lorebook writes, doesn't touch
+  // injection. ON by default (the whole point is transparency). Stored per-chat.
   activityLog: {
-    enabled: true,         // записывать фоновые действия (без LLM, локально)
-    maxEntries: 100,       // rolling-потолок; старейшие выпадают первыми
+    enabled: true,         // record background actions (no LLM, local)
+    maxEntries: 100,       // rolling ceiling; oldest drop first
   },
 
-  // --- Таймлайн (timeline.js, Фаза D) ---
-  // Единая хронология в Memory → Timeline: события активности + точки восстановления
-  // (снапшоты backup.js) с кнопкой ⏪ Restore. Только UI, инъекцию не трогает; какие
-  // строки показывать решают activityLog.enabled / backup.enabled.
+  // --- Timeline (timeline.js, Phase D) ---
+  // One chronology in Memory → Timeline: activity events + restore points (backup.js
+  // snapshots) with a ⏪ Restore button. UI only, doesn't touch injection; which rows
+  // to show is decided by activityLog.enabled / backup.enabled.
   timeline: {
-    enabled: true,         // показывать секцию Timeline (мастер-тумблер UI)
+    enabled: true,         // show the Timeline section (UI master toggle)
   },
 
-  // --- Форк чата (branch-guard) ---
-  // При ветвлении чата ST копирует привязку книги в ветку → таймлайны делят одну
-  // книгу. Предлагаем дать ветке свою копию, чтобы память не пересекалась.
+  // --- Chat fork (branch-guard) ---
+  // On a chat branch ST copies the book binding into the branch → timelines share one
+  // book. We offer to give the branch its own copy so memory doesn't cross over.
   branch: {
     enabled: true,
-    askOnFork: true,            // спрашивать на входе в ветку (иначе — по defaultAction)
-    defaultAction: 'fork',      // 'fork' = своя книга · 'share' = делить с родителем
-    _handled: [],               // внутреннее: id веток, по которым уже решали (rolling)
+    askOnFork: true,            // ask on entering a branch (else use defaultAction)
+    defaultAction: 'fork',      // 'fork' = own book · 'share' = share with parent
+    _handled: [],               // internal: branch ids already decided (rolling)
   },
 
-  // --- Глобальная книга (global-reconciler) ---
-  // Если книга, в которую пишет текущий чат, активна ГЛОБАЛЬНО (selected_world_info),
-  // память чата льётся во все чаты. Предлагаем приватную копию или снять с глобали.
+  // --- Global book (global-reconciler) ---
+  // If the book the current chat writes to is GLOBALLY active (selected_world_info),
+  // the chat's memory leaks into all chats. We offer a private copy or removing it from global.
   globalReconciler: {
     enabled: true,
-    askOnDetected: true,        // спросить, когда наша книга активна глобально
-    defaultAction: 'copy',      // 'copy' = приватная копия · 'disable' = убрать из глобальных · 'share' = оставить
-    _handled: [],               // внутреннее: chatId, по которым уже решали (rolling)
+    askOnDetected: true,        // ask when our book is globally active
+    defaultAction: 'copy',      // 'copy' = private copy · 'disable' = remove from global · 'share' = keep
+    _handled: [],               // internal: chatIds already decided (rolling)
   },
 
-  // --- Диагностика (debug-trace, ветка testing) ---
-  // Кольцевой трейс решений (запечатка арок, сдвиги сцены, запросы агента, запись
-  // в буфер) + кнопка выгрузки снимка состояния в JSON. Выкл → trace() это no-op.
+  // --- Diagnostics (debug-trace, testing branch) ---
+  // Ring trace of decisions (arc seals, scene shifts, agent requests, buffer writes)
+  // + a button to export a state snapshot as JSON. Off → trace() is a no-op.
   debug: {
-    enabled: false,        // писать трейс решений (в память; на поведение не влияет)
-    traceCap: 500,         // сколько последних событий держать
+    enabled: false,        // record the decision trace (in memory; no behaviour change)
+    traceCap: 500,         // how many recent events to keep
   },
 });
 
@@ -257,7 +257,7 @@ export function getSettings() {
   if (!extensionSettings[MODULE_NAME]) {
     extensionSettings[MODULE_NAME] = structuredClone(DEFAULTS);
   }
-  // Поверхностный + один уровень вложенных объектов merge с дефолтами.
+  // Shallow merge plus one level of nested objects against the defaults.
   const s = extensionSettings[MODULE_NAME];
   for (const k of Object.keys(DEFAULTS)) {
     if (!Object.hasOwn(s, k)) {
@@ -276,44 +276,44 @@ export function saveSettings() {
 }
 
 /**
- * Единый контракт «дешёвые фон-джобы идут везде, кроме lite»: саммари арки, мёрж графа,
- * авто-скрытие после саммари. Дорогие (аудит / deep-extract) гейтятся отдельно по
- * autonomous.enabled на своих сайтах. Один источник правды — чтобы добавление режима
- * или тумблера «пауза фоновой памяти» правилось в одном месте.
+ * Single contract "cheap background jobs run everywhere except lite": arc summaries,
+ * graph merges, auto-hide after summary. Expensive ones (audit / deep-extract) are
+ * gated separately by autonomous.enabled at their call sites. One source of truth so
+ * adding a mode or a "pause background memory" toggle is a one-place change.
  */
 export function backgroundJobsAllowed(s = getSettings()) { return s.mode !== 'lite'; }
 
-/** Применить пресет режима к остальным настройкам (анти-перегруз UI). */
+/** Apply a mode preset to the rest of the settings (anti UI-overload). */
 export function applyMode(mode) {
   const s = getSettings();
   s.mode = mode;
   if (mode === 'lite') {
-    s.retrievalMode = 'recency';          // без фоновой LLM
+    s.retrievalMode = 'recency';          // no background LLM
     s.resurfacing.enabled = false;
-    s.autonomous.enabled = false;         // фоновый воркер выключен
-    s.contextBudget.enabled = false;      // без управляемой памяти — без потолка
+    s.autonomous.enabled = false;         // background worker off
+    s.contextBudget.enabled = false;      // no managed memory — no ceiling
   } else if (mode === 'balanced') {
     s.retrievalMode = 'agent';
     s.agentEveryNTurns = 3;
-    s.autonomous.enabled = false;         // ДЕШЁВЫЕ фон-джобы (саммари арки + мёрж графа) идут,
-                                          // авто-скрытие после саммари — тоже; ДОРОГИЕ (аудит/
-                                          // deep-extract) остаются только в autonomous.
-    s.contextBudget.enabled = true;       // Фаза D: потолок — чистый код, без LLM → можно
+    s.autonomous.enabled = false;         // CHEAP background jobs (arc summary + graph merge) run,
+                                          // and auto-hide after summary too; EXPENSIVE ones (audit/
+                                          // deep-extract) stay autonomous-only.
+    s.contextBudget.enabled = true;       // Phase D: the ceiling is pure code, no LLM → safe to enable
   } else if (mode === 'autonomous') {
     s.retrievalMode = 'agent';
     s.agentEveryNTurns = 2;
-    s.autonomous.enabled = true;          // фундамент Фазы A собран → включаем воркер
-    // Фаза B: конвейер извлечения (саммари арки + мёрж графа) работает только при
-    // autonomous.enabled. Инъекция ярусов 2/3 (огрызки/подграф) — БЕЗ LLM, идёт во
-    // всех режимах, если в памяти уже есть данные.
+    s.autonomous.enabled = true;          // Phase A foundation in place → enable the worker
+    // Phase B: the extraction pipeline (arc summary + graph merge) runs only when
+    // autonomous.enabled. Tier 2/3 injection (gists/subgraph) needs NO LLM and runs in
+    // every mode if data already exists in memory.
     s.extraction.enabled = true;
-    // Фаза C: допроход глубокого извлечения (allow-list + значимость + дрейф) —
-    // тоже только в autonomous. llmMode держим как выбрал юзер (дефолт hybrid).
+    // Phase C: the deep-extraction pass (allow-list + significance + drift) is also
+    // autonomous-only. Keep llmMode as the user chose (default hybrid).
     s.deepExtract.enabled = true;
-    // Фаза D: глобальный потолок инъекции (чистый код) — на полную память тем более.
+    // Phase D: global injection ceiling (pure code) — all the more so for full memory.
     s.contextBudget.enabled = true;
-    // Фаза D §4b: двухстадийный конвейер — scene-gated движок памяти + кэш ядра.
-    // composeLLM (доп. дешёвый вызов на сдвиге сцены) оставляем юзеру — дефолт выкл.
+    // Phase D §4b: two-stage pipeline — scene-gated memory engine + core cache.
+    // composeLLM (extra cheap call on scene shift) is left to the user — default off.
     s.pipeline.enabled = true;
   }
   saveSettings();

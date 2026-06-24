@@ -1,6 +1,6 @@
-// text-relevance.js — лёгкая математика релевантности БЕЗ LLM: токенизация со
-// стоп-словами (en+ru), Jaccard (для сдвига сцены) и BM25 (для ресёрфинга/relevant).
-// 🟢 мгновенно и предсказуемо.
+// text-relevance.js — lightweight relevance math, NO LLM: tokenization with
+// stopwords (en+ru), Jaccard (scene shift) and BM25 (resurfacing/relevance).
+// 🟢 instant and deterministic.
 
 const STOP = new Set([
   // en
@@ -13,8 +13,8 @@ const STOP = new Set([
   'под','при','без','про','или','либо','тебя','меня','себя','свой','она','оно','они',
 ]);
 
-/** Лёгкий стеммер русского (упрощённый Snowball/Porter): отсекает окончания,
- *  чтобы «Рену/Реном/Рена» → «рен». ~Покрывает падежи и глагольные формы. */
+/** Lightweight Russian stemmer (simplified Snowball/Porter): strips endings so
+ *  «Рену/Реном/Рена» → «рен». Covers cases and verb forms. */
 function stemRu(w) {
   w = w.toLowerCase().replace(/ё/g, 'е');
   const i = w.search(/[аеиоуыэюя]/);
@@ -49,7 +49,7 @@ function stemRu(w) {
   return head + rv;
 }
 
-/** Лёгкий стеммер английского: консервативное отсечение частых суффиксов. */
+/** Lightweight English stemmer: conservative stripping of common suffixes. */
 function stemEn(w) {
   w = w.toLowerCase();
   if (w.length <= 4) return w;
@@ -60,30 +60,30 @@ function stemEn(w) {
   return w;
 }
 
-/** Стемминг по алфавиту (кириллица → ru, иначе en). Чинит падежи БЕЗ LLM. */
+/** Stem by alphabet (Cyrillic → ru, else en). Normalizes cases, NO LLM. */
 export function stem(w) {
   if (isProperNoun(w)) return w.toLowerCase();
   return /[а-яё]/i.test(w) ? stemRu(w) : stemEn(w);
 }
 
 /**
- * Детектор имён собственных: слово начинается с заглавной, но НЕ состоит из всех
- * заглавных (акронимы типа NATO, FBI, КГБ — не имена). Возвращает true, если слово
- * похоже на имя собственное и его НЕ надо стеммить (только lowerCase).
+ * Proper-noun detector: word starts uppercase but is NOT all-caps (acronyms like
+ * NATO, FBI, КГБ aren't names). Returns true if the word looks like a proper noun
+ * that should NOT be stemmed (only lowercased).
  *
- * Самокалибрующийся — не использует словарей имён.
+ * Self-calibrating — uses no name dictionaries.
  */
 export function isProperNoun(w) {
   if (!w || typeof w !== 'string') return false;
-  // Должно начинаться с заглавной буквы.
+  // Must start with an uppercase letter.
   if (!/^[A-ZА-ЯЁ]/.test(w)) return false;
-  // Если БОЛЬШИНСТВО букв заглавные — акроним (NATO, FBI, USA, КГБ, СССР).
+  // If MOST letters are uppercase, it's an acronym (NATO, FBI, USA, КГБ, СССР).
   const upper = (w.match(/[A-ZА-ЯЁ]/g) || []).length;
   if (upper > w.length * 0.5) return false;
   return true;
 }
 
-/** Контент-токены: нижний регистр, без стоп-слов, длиннее 3 символов, СТЕММИНГ. */
+/** Content tokens: lowercased, no stopwords, longer than 3 chars, STEMMED. */
 export function contentTokens(text) {
   return String(text || '')
     .toLowerCase()
@@ -92,7 +92,7 @@ export function contentTokens(text) {
     .map(stem);
 }
 
-/** Доля общих уникальных слов (0..1). Для детектора сцены. */
+/** Fraction of shared unique words (0..1). For the scene detector. */
 export function jaccard(aTokens, bTokens) {
   const A = new Set(aTokens), B = new Set(bTokens);
   if (!A.size || !B.size) return 0;
@@ -101,9 +101,9 @@ export function jaccard(aTokens, bTokens) {
 }
 
 /**
- * IDF по корпусу документов-токенов (документ = одно сообщение). Возвращает функцию
- * idf(token). IDF считается ПО САМОМУ чату → метрика самокалибрующаяся (никаких внешних
- * словарей/имён), инвариантна к сеттингу. Формула как в BM25: ln(1+(N−df+0.5)/(df+0.5)).
+ * IDF over a corpus of token-docs (doc = one message). Returns an idf(token)
+ * function. IDF is computed FROM the chat itself → self-calibrating (no external
+ * dictionaries/names), setting-invariant. BM25 formula: ln(1+(N−df+0.5)/(df+0.5)).
  */
 export function buildIdf(docsTokens) {
   const N = (docsTokens?.length) || 1;
@@ -113,9 +113,9 @@ export function buildIdf(docsTokens) {
 }
 
 /**
- * Косинус между двумя списками токенов во взвешивании tf·idf (0..1). В отличие от Jaccard
- * редкие/топиковые слова получают вес, вездесущие гасятся → различает СМЕНУ ТЕМЫ, а не
- * оборот лексики (Jaccard на разреженном мешке слов насыщается ~0.2-0.3 и почти бесполезен).
+ * Cosine between two token lists under tf·idf weighting (0..1). Unlike Jaccard,
+ * rare/topical words get weight and ubiquitous ones are damped → detects a TOPIC
+ * SHIFT, not lexical churn (Jaccard on a sparse bag saturates ~0.2-0.3, near-useless).
  */
 export function tfidfCosine(aTokens, bTokens, idf) {
   const vec = (toks) => {
@@ -132,7 +132,7 @@ export function tfidfCosine(aTokens, bTokens, idf) {
 }
 
 /**
- * BM25-ранжирование документов под запрос. Возвращает [{doc, score}] по убыванию.
+ * BM25 ranking of documents against a query. Returns [{doc, score}] descending.
  * docs: [{ tokens:string[], ... }]. query: string[].
  */
 export function bm25Rank(queryTokens, docs, { k1 = 1.5, b = 0.75 } = {}) {

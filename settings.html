@@ -6,7 +6,7 @@
     </div>
     <div class="inline-drawer-content">
 
-      <!-- BASIC: всё, что нужно большинству -->
+      <!-- BASIC: everything most users need -->
       <label class="checkbox_label">
         <input type="checkbox" id="cl-enabled">
         <span data-cl-i18n="set.enable">Enable</span>
@@ -29,7 +29,7 @@
       </label>
       <small id="cl-mode-hint" class="cl-hint"></small>
 
-      <!-- ADVANCED: спрятано, чтобы не перегружать -->
+      <!-- ADVANCED: hidden to avoid overwhelming -->
       <div class="inline-drawer cl-advanced">
         <div class="inline-drawer-toggle inline-drawer-header">
           <b data-cl-i18n="set.advanced">Advanced</b>
@@ -37,7 +37,7 @@
         </div>
         <div class="inline-drawer-content">
 
-          <!-- каждая тема — свёрнутая под-секция, чтобы Advanced не «простыня» -->
+          <!-- each topic is a collapsed sub-section so Advanced isn't a wall of text -->
           <details class="cl-sub">
             <summary data-cl-i18n="set.agent">Background agent</summary>
             <small data-cl-i18n="set.agent.note">Cheap/fast model gathers memory; your main model writes the reply.</small>

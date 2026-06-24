@@ -1,18 +1,18 @@
-// tree-store.js — дерево («оглавление каналов») поверх энтри книги.
-// v0: строим дерево ИЗ метаданных энтри (поле пути в comment/group), не из
-// отдельного хрупкого стора — переживает экспорт/импорт книги.
+// tree-store.js — a tree ("channel ToC") over the book's entries.
+// v0: build the tree FROM entry metadata (path field in comment/group), not from
+// a separate fragile store — survives book export/import.
 //
-// Путь узла кодируем в энтри так: первая строка comment вида
+// A node path is encoded in an entry as a comment line like:
 //   [TREE: Characters/Sable]
-// Если метки нет — энтри попадает в корневой узел "Uncategorized".
+// Without the marker the entry lands in the root "Uncategorized" node.
 //
-// Метки: 🟢 (чистое чтение/парсинг).
+// Markers: 🟢 (pure read/parse).
 
 import { readEntries } from './lorebook-service.js';
 
 const PATH_RE = /\[TREE:\s*([^\]]+)\]/i;
-// Служебные энтри нашего слоя, которые НЕ показываем в дереве/оглавлении
-// (граф-manifest — внутренний JSON-индекс, disable:true).
+// Internal entries of our layer that are NOT shown in the tree/ToC
+// (graph manifest — internal JSON index, disable:true).
 const INTERNAL_RE = /tier=manifest|origin=graph/i;
 
 function isInternal(entry) { return INTERNAL_RE.test(String(entry?.comment ?? '')); }
@@ -24,19 +24,19 @@ function pathOf(entry) {
 }
 
 function titleOf(entry) {
-  // приоритет: comment без метки → key[0] → первые слова content
+  // priority: comment without marker → key[0] → first words of content
   const c = `${entry.comment ?? ''}`.replace(PATH_RE, '').trim();
   if (c) return c;
   if (Array.isArray(entry.key) && entry.key[0]) return entry.key[0];
   return `${entry.content ?? ''}`.slice(0, 40) || 'entry';
 }
 
-/** Построить дерево: { name, children:Map, entries:[] }. */
+/** Build the tree: { name, children:Map, entries:[] }. */
 export async function buildTree() {
   const entries = await readEntries();
   const root = { name: '(root)', children: new Map(), entries: [] };
   for (const e of entries) {
-    if (isInternal(e)) continue;        // граф-manifest не часть оглавления
+    if (isInternal(e)) continue;        // graph manifest is not part of the ToC
     const segs = pathOf(e);
     let node = root;
     for (const seg of segs) {
@@ -48,7 +48,7 @@ export async function buildTree() {
   return root;
 }
 
-/** Компактное оглавление для инъекции (без полного содержимого энтри). */
+/** Compact ToC for injection (without full entry content). */
 export async function renderToc() {
   const root = await buildTree();
   const lines = [];
@@ -64,7 +64,7 @@ export async function renderToc() {
   return `[Memory map — branches available in this lorebook]\n${lines.join('\n')}`;
 }
 
-/** Достать полное содержимое конкретных веток по их именам (для агента). */
+/** Fetch full content of specific branches by name (for the agent). */
 export async function getBranchContent(branchNames) {
   const root = await buildTree();
   const out = [];
