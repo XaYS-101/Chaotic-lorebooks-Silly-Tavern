@@ -5,48 +5,67 @@
 import { getSettings } from '../core/settings.js';
 
 // Send a background agent request. Returns the response text, or null on failure.
-// opts: { system, prompt, jsonSchema? }
-export async function agentRequest({ system, prompt, jsonSchema }) {
+// opts: { system, prompt, jsonSchema?, retries?: number (default 1 → 2 total attempts) }
+// Retries only on transient failures (network, timeout, 5xx), not parse errors.
+export async function agentRequest({ system, prompt, jsonSchema, retries = 1 }) {
   const ctx = SillyTavern.getContext();
   const s = getSettings();
   const { agentProfile, agentSource } = s;
+  const maxAttempts = Math.max(1, Math.min(3, (retries ?? 1) + 1)); // 2–4 total
 
-  try {
-    // Custom OpenAI-compatible endpoint; on miss/failure falls back to current connection.
-    if (agentSource === 'custom') {
-      const p = (s.api?.profiles || []).find((x) => x && x.id === s.api?.activeProfileId);
-      if (p?.url && p?.model) {
-        const r = await customEndpointRequest(p, system, prompt);
-        if (r != null) return r;
+  // Build a compact schema reminder for paths that can't pass structured-output natively.
+  const schemaHint = jsonSchema ? schemaAsPromptHint(jsonSchema) : '';
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      let result = null;
+
+      // Custom OpenAI-compatible endpoint; on miss/failure falls back to current connection.
+      if (agentSource === 'custom') {
+        const p = (s.api?.profiles || []).find((x) => x && x.id === s.api?.activeProfileId);
+        if (p?.url && p?.model) {
+          result = await customEndpointRequest(p, system, prompt, jsonSchema, schemaHint);
+        }
+        if (result == null) {
+          result = await fallbackQuiet(ctx, system, prompt, jsonSchema, schemaHint);
+        }
+      } else if (agentSource === 'st' && agentProfile && ctx.ConnectionManagerRequestService?.sendRequest) {
+        // ST Connection Profile — append schema hint to system prompt since sendRequest
+        // doesn't expose structured-output params.
+        const sys = schemaHint ? `${system}\n\n${schemaHint}` : system;
+        const res = await ctx.ConnectionManagerRequestService.sendRequest(
+          agentProfile,
+          [
+            { role: 'system', content: sys },
+            { role: 'user', content: prompt },
+          ],
+          1024,
+        );
+        result = typeof res === 'string' ? res : (res?.content ?? res?.text ?? null);
+      } else {
+        // Fallback: current connection (always available).
+        result = await fallbackQuiet(ctx, system, prompt, jsonSchema, schemaHint);
       }
-      return await fallbackQuiet(ctx, system, prompt, jsonSchema);
+
+      if (result != null) return result;
+    } catch (err) {
+      console.warn(`[ChaoticLorebooks] agentRequest attempt ${attempt + 1}/${maxAttempts} failed:`, err);
     }
 
-    // ST Connection Profile (two-model setup) via ConnectionManagerRequestService.
-    if (agentSource === 'st' && agentProfile && ctx.ConnectionManagerRequestService?.sendRequest) {
-      const res = await ctx.ConnectionManagerRequestService.sendRequest(
-        agentProfile,
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: prompt },
-        ],
-        1024,
-      );
-      return typeof res === 'string' ? res : (res?.content ?? res?.text ?? null);
+    // Don't retry on last attempt.
+    if (attempt < maxAttempts - 1) {
+      await sleep(250 * Math.pow(2, attempt)); // 250ms, 500ms, 1000ms
     }
-
-    // Fallback: current connection (always available).
-    return await fallbackQuiet(ctx, system, prompt, jsonSchema);
-  } catch (err) {
-    console.warn('[ChaoticLorebooks] agentRequest failed, falling back:', err);
-    return null;
   }
+
+  return null;
 }
 
 // Background generation on ST's current connection (not rendered into chat).
-async function fallbackQuiet(ctx, system, prompt, jsonSchema) {
+async function fallbackQuiet(ctx, system, prompt, jsonSchema, schemaHint) {
+  const sys = schemaHint ? `${system}\n\n${schemaHint}` : system;
   const text = await ctx.generateQuietPrompt({
-    quietPrompt: `${system}\n\n${prompt}`,
+    quietPrompt: `${sys}\n\n${prompt}`,
     ...(jsonSchema ? { jsonSchema } : {}),
   });
   return text ?? null;
@@ -54,22 +73,30 @@ async function fallbackQuiet(ctx, system, prompt, jsonSchema) {
 
 // POST to a custom OpenAI-compatible /chat/completions. Never throws — returns
 // null on any error so the caller falls back. p: { url, key?, model }.
-async function customEndpointRequest(p, system, prompt) {
+// jsonSchema: adds response_format (best-effort); schemaHint: appended to system prompt.
+async function customEndpointRequest(p, system, prompt, jsonSchema, schemaHint) {
   try {
     const url = normalizeChatUrl(p.url);
     const headers = { 'Content-Type': 'application/json' };
     if (p.key) headers.Authorization = `Bearer ${p.key}`;
+    const sys = schemaHint ? `${system}\n\n${schemaHint}` : system;
+    const body = {
+      model: p.model,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 1024,
+    };
+    // Best-effort structured output for OpenAI-compatible endpoints.
+    // json_object is more widely supported than json_schema across providers.
+    if (jsonSchema) {
+      body.response_format = { type: 'json_object' };
+    }
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        model: p.model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: prompt },
-        ],
-        max_tokens: 1024,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       console.warn('[ChaoticLorebooks] custom endpoint HTTP', res.status);
@@ -101,4 +128,17 @@ export function parseJsonLoose(text) {
   } catch {
     return null;
   }
+}
+
+/** Compact one-line schema reminder for paths that can't pass structured-output natively. */
+function schemaAsPromptHint(schema) {
+  if (!schema) return '';
+  const props = schema?.properties ? Object.keys(schema.properties).join(', ') : '';
+  const req = schema?.required?.length ? ` (required: ${schema.required.join(', ')})` : '';
+  return `OUTPUT MUST BE JSON with fields: ${props}${req}. No markdown, no commentary.`;
+}
+
+/** Promise-based sleep (ms). */
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }

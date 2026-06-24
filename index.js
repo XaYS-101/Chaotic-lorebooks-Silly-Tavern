@@ -19,7 +19,7 @@ import { resumeAfterRestart, registerHandler, enqueue } from './src/core/job-que
 import { noteUserEditing } from './src/lorebook/lorebook-writer.js';
 import { snapshot as backupSnapshot } from './src/lorebook/backup.js';
 // --- Фаза B — извлечение + граф + ярусы ---
-import { summarizeArc } from './src/memory/arc-summary.js';
+import { summarizeArc, noteSettledForEmptyGistRetry, retryEmptyGistArcs } from './src/memory/arc-summary.js';
 import { addTriples, invalidateArc } from './src/memory/knowledge-graph.js';
 // --- Фаза C — глубокое извлечение (allow-list + значимость + дрейф) ---
 import { extractArc } from './src/memory/deep-extractor.js';
@@ -121,6 +121,11 @@ async function onSettledTurn() {
   if (s.autonomous?.enabled && s.drift?.auditEnabled !== false && noteSettledForAudit()) {
     enqueue('audit-expensive', {}).catch(warn);
   }
+  // Авто-регенерация пустых саммари арок: раз в 3 реальных сообщения (не свайпа)
+  // проверяем запечатанные арки без gist и доизвлекаем их.
+  if (s.extraction?.enabled !== false && await noteSettledForEmptyGistRetry(3)) {
+    retryEmptyGistArcs().catch(warn);
+  }
 }
 
 /**
@@ -157,7 +162,7 @@ function registerJobHandlers() {
   // Запечатанная арка → дешёвое саммари + voiceQuotes + триплеты.
   // После саммари — авто-скрытие: теперь у арки есть gist, прятать пласт безопасно.
   registerHandler('arc-extract', async (payload) => {
-    const ok = await summarizeArc(payload.arcId);
+    const ok = await summarizeArc(payload.arcId, { force: !!payload.force });
     if (ok) await autoHideMaintain().catch(warn);
   });
   // Фаза C: allow-list (анти-галлюцинация) + дрейф-флаг → очищенный graph-merge.

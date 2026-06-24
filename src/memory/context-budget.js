@@ -11,9 +11,11 @@
 // не удаляем автоматически — юзер жмёт «забыть» сам).
 //
 // Метки: 🟢. Зависит только от настроек + метаданных (recollection).
+//
+// H5: unified scoring + MMR diversity (pure-code, no LLM).
 
 import { getSettings } from '../core/settings.js';
-import { getGists } from './recollection.js';
+import { contentTokens } from './text-relevance.js';
 
 // --- Отчёт последней сборки (читает UI для индикатора здоровья памяти) ---
 let lastReport = null;
@@ -148,6 +150,7 @@ export async function review() {
   const lo = s.deepExtract?.lowThreshold ?? 0.3;
   const candidates = [];
 
+  const { getGists } = await import('./recollection.js');
   const stale = getGists()
     .filter((g) => g.active !== false && clampSig(g.significance) < lo)
     .sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0));
@@ -165,3 +168,87 @@ export async function review() {
     : 'Nothing stale to prune — memory is lean.';
   return { candidates, summary };
 }
+
+// --- H5: Unified scoring + MMR diversity (pure-code, no LLM) ---
+
+/**
+ * Унифицированная оценка пункта памяти для 0/1 knapsack.
+ * score ∈ [0,1]; выше = ценнее для инъекции.
+ *
+ * @param {{text:string, recency?:number, weight?:number, significance?:number, centrality?:number}} item
+ *   recency — доля свежести [0,1] (1 = только что); weight — нормализованный вес буфера [0,1];
+ *   significance — значимость арки [0,1]; centrality — центральность в графе [0,1].
+ * @returns {number}
+ */
+export function scoreItem(item) {
+  const s = getSettings().contextBudget;
+  const w = s?.scoreWeights || {};
+  const wr = w.recency ?? 0.35;
+  const ww = w.bufferWeight ?? 0.25;
+  const ws = w.significance ?? 0.25;
+  const wc = w.centrality ?? 0.15;
+  let score = 0, div = 0;
+  if (item.recency != null) { score += wr * clamp(item.recency); div += wr; }
+  if (item.weight != null) { score += ww * clamp(item.weight); div += ww; }
+  if (item.significance != null) { score += ws * clamp(item.significance); div += ws; }
+  if (item.centrality != null) { score += wc * clamp(item.centrality); div += wc; }
+  return div > 0 ? score / div : 0.5;
+}
+
+/** Текстовая близость между двумя пунктами памяти (contentTokens → Jaccard). */
+export function itemSimilarity(aText, bText) {
+  const A = contentTokens(String(aText ?? ''));
+  const B = contentTokens(String(bText ?? ''));
+  if (!A.length || !B.length) return 0;
+  const sa = new Set(A), sb = new Set(B);
+  let inter = 0;
+  for (const w of sa) if (sb.has(w)) inter++;
+  return inter / (sa.size + sb.size - inter);
+}
+
+/**
+ * MMR (Maximal Marginal Relevance) отбор: выбрать до `maxTokens` токенов из
+ * `candidates`, балансируя unifiedScore и разнообразие (λ).
+ *
+ * @param {Array<{text:string, recency?, weight?, significance?, centrality?}>} candidates
+ * @param {number} maxTokens — жёсткий потолок токенов
+ * @param {number} [lambda=0.7] — баланс релевантность/разнообразие (1 = только score, 0 = только diversity)
+ * @returns {Promise<Array>} отобранные пункты в порядке убывания MMR
+ */
+export async function mmrSelect(candidates, maxTokens, lambda = 0.7) {
+  if (!candidates.length) return [];
+  const lam = Math.max(0, Math.min(1, lambda));
+  const unselected = candidates.map((c, i) => ({ ...c, _idx: i }));
+  const selected = [];
+  let usedTokens = 0;
+
+  while (unselected.length && usedTokens < maxTokens) {
+    // Пересчитываем MMR для каждого оставшегося.
+    let best = null, bestMMR = -Infinity, bestIdx = -1;
+    for (let i = 0; i < unselected.length; i++) {
+      const c = unselected[i];
+      const s = scoreItem(c);
+      // Diversity penalty: max similarity to any already-selected item.
+      let maxSim = 0;
+      for (const sel of selected) {
+        const sim = itemSimilarity(c.text, sel.text);
+        if (sim > maxSim) maxSim = sim;
+      }
+      const mmr = lam * s - (1 - lam) * maxSim;
+      if (mmr > bestMMR) { bestMMR = mmr; best = c; bestIdx = i; }
+    }
+    if (!best) break;
+
+    // Проверим, влезает ли в бюджет.
+    const tokens = await estimate(best.text);
+    if (usedTokens + tokens > maxTokens && selected.length > 0) break; // не лезет — стоп
+
+    selected.push(best);
+    usedTokens += tokens;
+    unselected.splice(bestIdx, 1);
+  }
+
+  return selected;
+}
+
+function clamp(v) { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5; }

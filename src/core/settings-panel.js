@@ -6,6 +6,8 @@ import { getSettings, saveSettings, applyMode, MODULE_NAME } from './settings.js
 import { t, localize } from './i18n.js';
 import { deepPurgeAllChats, purgeCurrentChat, armBackstop } from './purge.js';
 import { downloadDiagnostics } from './debug-trace.js';
+import { seedBaselineIfNeeded } from '../memory/arc-segmenter.js';
+import { maybeOfferBackfill } from '../memory/backfill.js';
 
 // id инпута → путь в настройках + тип. Только РЕАЛЬНЫЕ v0-настройки.
 const BINDINGS = [
@@ -408,6 +410,17 @@ async function clearAllData(scope = 'chat') {
 
   // Clear the current chat before resetting settings (needs live chatMetadata).
   try { await purgeCurrentChat(); } catch (e) { console.warn('[ChaoticLorebooks] clear current failed:', e); }
+
+  // Bug #3: after in-place purge, re-seed baseline and re-offer backfill.
+  // CHAT_CHANGED doesn't fire on in-place reset, so the banner would stay
+  // missing until the user switches chats away and back.
+  if (scope === 'chat') {
+    try {
+      const s = getSettings();
+      await seedBaselineIfNeeded(s.backfill?.threshold ?? 10);
+      await maybeOfferBackfill();
+    } catch (e) { console.warn('[ChaoticLorebooks] re-seed after clear failed:', e); }
+  }
 
   let deep = null;
   if (scope === 'all') {

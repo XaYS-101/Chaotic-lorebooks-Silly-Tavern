@@ -134,9 +134,10 @@ async function adjudicate(t, exEdge) {
     + 'Reply ONLY JSON: {"contradiction": <true|false>, "detail": "<short reason>"}.';
   const prompt = `EXISTING: ${exEdge.from} —${exEdge.rel}→ ${exEdge.to} (weight ${exEdge.weight ?? '?'})\n`
     + `NEW: ${t.from} —${t.rel}→ ${t.to}`;
-  noteLlmCall();
   const parsed = parseJsonLoose(await agentRequest({ system, prompt }));
   if (!parsed) return null;
+  // Only count against budget after a successful result.
+  noteLlmCall();
   return { contradiction: parsed.contradiction === true, detail: String(parsed.detail || '') };
 }
 
@@ -153,9 +154,9 @@ async function fullDriftPass(triples, graph, arcId) {
     + 'CONTRADICT the ESTABLISHED graph (not mere evolution). '
     + 'Reply ONLY JSON: {"contradictions":[{"from":"","to":"","rel":"","detail":""}]}.';
   const prompt = `ESTABLISHED:\n${existing}\n\nNEW:\n${incoming}`;
-  noteLlmCall();
   const parsed = parseJsonLoose(await agentRequest({ system, prompt }));
   const arr = Array.isArray(parsed?.contradictions) ? parsed.contradictions : [];
+  if (arr.length) noteLlmCall();
   return arr.filter((c) => c && c.from && c.to).map((c) => ({
     arcId, kind: 'contradiction',
     from: String(c.from), to: String(c.to), rel: String(c.rel || 'related'),
@@ -286,9 +287,9 @@ async function auditPass(graph, ambiguous) {
     + 'pairs are genuine CONTRADICTIONS (not natural character development — evolution is NOT a '
     + 'contradiction). Reply ONLY JSON: {"contradictions":[{"index":<int>,"detail":"<short reason>"}]}.';
   const prompt = `PAIRS:\n${lines}`;
-  noteLlmCall();
   const parsed = parseJsonLoose(await agentRequest({ system, prompt }));
   const arr = Array.isArray(parsed?.contradictions) ? parsed.contradictions : [];
+  if (arr.length) noteLlmCall();
   const out = [];
   for (const c of arr) {
     const pair = ambiguous[Number(c?.index)];

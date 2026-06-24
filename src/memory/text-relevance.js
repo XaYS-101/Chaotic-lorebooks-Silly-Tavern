@@ -61,7 +61,27 @@ function stemEn(w) {
 }
 
 /** Стемминг по алфавиту (кириллица → ru, иначе en). Чинит падежи БЕЗ LLM. */
-export function stem(w) { return /[а-яё]/i.test(w) ? stemRu(w) : stemEn(w); }
+export function stem(w) {
+  if (isProperNoun(w)) return w.toLowerCase();
+  return /[а-яё]/i.test(w) ? stemRu(w) : stemEn(w);
+}
+
+/**
+ * Детектор имён собственных: слово начинается с заглавной, но НЕ состоит из всех
+ * заглавных (акронимы типа NATO, FBI, КГБ — не имена). Возвращает true, если слово
+ * похоже на имя собственное и его НЕ надо стеммить (только lowerCase).
+ *
+ * Самокалибрующийся — не использует словарей имён.
+ */
+export function isProperNoun(w) {
+  if (!w || typeof w !== 'string') return false;
+  // Должно начинаться с заглавной буквы.
+  if (!/^[A-ZА-ЯЁ]/.test(w)) return false;
+  // Если БОЛЬШИНСТВО букв заглавные — акроним (NATO, FBI, USA, КГБ, СССР).
+  const upper = (w.match(/[A-ZА-ЯЁ]/g) || []).length;
+  if (upper > w.length * 0.5) return false;
+  return true;
+}
 
 /** Контент-токены: нижний регистр, без стоп-слов, длиннее 3 символов, СТЕММИНГ. */
 export function contentTokens(text) {

@@ -154,6 +154,19 @@
 .cl-rm { min-width: 32px; min-height: 32px; padding: 0; background: transparent; color: var(--SmartThemeBodyColor); opacity: 0.6; }
 .cl-rm:hover { opacity: 1; }
 
+/* Редактируемый пункт буфера мыслей (вкладка Thoughts) — колоночный, как Saved. */
+.cl-bufitem { flex-direction: column; align-items: stretch; gap: 6px; }
+.cl-buf-text {
+  width: 100%; min-height: 40px; max-height: 40vh; resize: vertical;
+  box-sizing: border-box; overflow-y: auto;
+  background: var(--black30a, rgba(0,0,0,0.3));
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+  border-radius: 6px; padding: 6px; font-size: 0.88em;
+}
+.cl-buf-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.cl-buf-actions .cl-weight { margin-right: auto; }
+
 /* Extensions-menu button (label on one line) */
 #cl-wand { cursor: pointer; white-space: nowrap; }
 #cl-wand > span { white-space: nowrap; }
@@ -310,6 +323,11 @@
   min-height: 30px; padding: 0 10px; cursor: pointer; font-size: 0.82em;
   background: transparent; color: var(--SmartThemeBodyColor);
   border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2)); border-radius: 6px;
+}
+.cl-arc-regen {
+  min-height: 30px; padding: 0 10px; cursor: pointer; font-size: 0.82em;
+  background: transparent; color: var(--SmartThemeQuoteColor, #c9803a);
+  border: 1px solid var(--SmartThemeQuoteColor, #c9803a); border-radius: 6px;
 }
 .cl-dirty {
   font-size: 0.72em; padding: 1px 6px; border-radius: 10px;

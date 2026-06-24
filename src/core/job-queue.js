@@ -93,7 +93,12 @@ async function drain() {
   // Дренируем во всех режимах, кроме lite (там фоновой памяти нет вовсе): balanced и
   // autonomous гонят ДЕШЁВЫЕ джобы (саммари арки, мёрж графа). Дорогие (аудит/deep-extract)
   // ставятся в очередь только в autonomous — на своих enqueue-сайтах. Backfill дренит даже в lite.
-  if (!backgroundJobsAllowed(s) && !isBackfillActive()) return;
+  // Дренируем во всех режимах кроме lite. Но force-джобы (ручной перезапуск из UI,
+  // авто-регенерация пустых саммари) и backfill проходят даже в lite.
+  if (!backgroundJobsAllowed(s) && !isBackfillActive()) {
+    const hasForceJob = getQueue().some((j) => j.status === 'pending' && j.payload?.force);
+    if (!hasForceJob) return;
+  }
   const concurrency = Math.max(1, Math.min(2, s.autonomous?.concurrency ?? 1));
 
   // Простой цикл: берём pending-джобы, пока есть слоты и бюджет.

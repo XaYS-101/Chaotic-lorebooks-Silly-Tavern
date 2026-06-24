@@ -181,6 +181,7 @@ export async function addTriples(payload) {
   }
 
   archiveColdInPlace(g, arcId);
+  probabilisticAliasMerge(g);
   capNodesInPlace(g);
 
   const dNodes = Object.keys(g.nodes).length - nodes0;
@@ -283,6 +284,114 @@ export async function invalidateArc(arcId) {
 }
 
 // --- Холодные узлы / потолок ---
+
+/**
+ * Вероятностное слияние алиасов: если два разных nodeId имеют ≥2 общих рёбер
+ * к одному и тому же третьему узлу с одинаковым отношением — это, вероятно,
+ * один и тот же персонаж (вариации имени / опечатка). Меньший узел сливается
+ * в больший (по числу provenance), все рёбра перенаправляются.
+ *
+ * Самокалибрующийся: не опирается на словари имён, только на структуру графа.
+ * Порог (≥2 общих соседа) выбран консервативно — одно совпадение может быть
+ * случайным (друзья одного персонажа), два уже статистически значимо.
+ */
+function probabilisticAliasMerge(g) {
+  const ids = Object.keys(g.nodes);
+  if (ids.length < 3) return; // нужно хотя бы 3 узла для осмысленного слияния
+
+  // Для каждой пары узлов считаем общих соседей с одинаковым отношением.
+  const pairs = [];
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = ids[i], b = ids[j];
+      const aNeighbors = neighborSet(g, a);
+      const bNeighbors = neighborSet(g, b);
+      // Считаем пересечение: {target}_{rel} совпадения
+      let shared = 0;
+      for (const n of aNeighbors) {
+        if (bNeighbors.has(n)) shared++;
+      }
+      if (shared >= 2) pairs.push({ a, b, shared });
+    }
+  }
+
+  // Сливаем от меньшего к большему (по сумме provenance).
+  for (const { a, b } of pairs) {
+    const nodeA = g.nodes[a], nodeB = g.nodes[b];
+    if (!nodeA || !nodeB) continue;
+    const sizeA = totalProvenance(g, a);
+    const sizeB = totalProvenance(g, b);
+    const [keep, absorb] = sizeA >= sizeB ? [a, b] : [b, a];
+    if (!g.nodes[keep] || !g.nodes[absorb]) continue;
+
+    // Перенаправить все рёбра от absorb → keep.
+    for (const e of g.edges) {
+      if (e.from === absorb) e.from = keep;
+      if (e.to === absorb) e.to = keep;
+    }
+    // Удалить self-рёбра, возникшие после перенаправления.
+    g.edges = g.edges.filter((e) => e.from !== e.to);
+
+    // Перенести алиасы поглощённого узла.
+    const absorbedNode = g.nodes[absorb];
+    if (absorbedNode && g.nodes[keep]) {
+      g.nodes[keep].aliases = [...new Set([
+        ...(g.nodes[keep].aliases || []),
+        absorbedNode.name,
+        ...(absorbedNode.aliases || []),
+      ])].slice(0, 6);
+      g.nodes[keep].lastActive = Math.max(g.nodes[keep].lastActive ?? 0, absorbedNode.lastActive ?? 0);
+    }
+    delete g.nodes[absorb];
+
+    // Удалить дубликаты рёбер (одинаковые from+to+rel), суммируя provenance.
+    dedupeEdges(g);
+  }
+}
+
+/** Набор строк "{target}_{relStem}" для всех рёбер, инцидентных узлу. */
+function neighborSet(g, nodeId) {
+  const set = new Set();
+  for (const e of g.edges) {
+    if (e.from === nodeId) set.add(`${e.to}_${relStem(e.rel)}`);
+    if (e.to === nodeId) set.add(`${e.from}_${relStem(e.rel)}`);
+  }
+  return set;
+}
+
+/** Сумма provenance-счётчиков по всем рёбрам, инцидентным узлу (грубая «масса» узла). */
+function totalProvenance(g, nodeId) {
+  let sum = 0;
+  for (const e of g.edges) {
+    if (e.from !== nodeId && e.to !== nodeId) continue;
+    if (e.provenance) for (const v of Object.values(e.provenance)) sum += v;
+  }
+  return sum || 1;
+}
+
+/** Удалить дубликаты рёбер: одинаковые from+to+rel → суммировать provenance, взять max weight. */
+function dedupeEdges(g) {
+  const seen = new Map();
+  const out = [];
+  for (const e of g.edges) {
+    const key = `${e.from}||${e.to}||${relStem(e.rel)}`;
+    const prev = seen.get(key);
+    if (prev) {
+      prev.weight = Math.max(prev.weight ?? 1, e.weight ?? 1);
+      if (e.provenance) {
+        prev.provenance = prev.provenance || {};
+        for (const [k, v] of Object.entries(e.provenance)) {
+          prev.provenance[k] = (prev.provenance[k] || 0) + v;
+        }
+      }
+    } else {
+      seen.set(key, e);
+      out.push(e);
+    }
+  }
+  g.edges = out;
+}
+
 function archiveColdInPlace(g, currentArc) {
   const after = getSettings().graph?.archiveColdAfterArcs ?? 8;
   const now = currentArc ?? maxArc(g);

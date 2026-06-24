@@ -9,7 +9,9 @@
 
 import { t } from '../core/i18n.js';
 import { buildTree } from '../lorebook/tree-store.js';
-import { getBuffer, removeItem as removeBufItem } from '../memory/thought-buffer.js';
+import {
+  getBuffer, removeItem as removeBufItem, editItem as editBufItem, BUFFER_KINDS,
+} from '../memory/thought-buffer.js';
 import {
   getFavorites, removeFavorite, editText, setEnabled, setPinned, setMode, saveAsEntry,
 } from '../inject/favorites.js';
@@ -17,6 +19,7 @@ import { getSettings, saveSettings } from '../core/settings.js';
 import { getBoundBookName, ensureBook } from '../lorebook/lorebook-service.js';
 import { isChatEnabled, toggleChatEnabled } from '../core/chat-state.js';
 import { getSealedArcs, sealReady, getArc } from '../memory/arc-segmenter.js';
+import { enqueue } from '../core/job-queue.js';
 import { maintain as autoHideMaintain, revealAll as autoHideRevealAll } from '../memory/auto-hide.js';
 // afterSeal живёт в оркестраторе (index.js): активность+снапшот+саммари+скрытие одним местом.
 // Живой биндинг, зовётся только в обработчике клика → циклический импорт безопасен.
@@ -226,7 +229,8 @@ function renderArcsSection() {
       <div class="cl-arc" data-arc="${a.id}">
         <span class="cl-arc-title">${t('ui.arc', { id: a.id })} ${sigBadge(a)}<span class="cl-weight">#${a.start}–${a.end}</span>
           ${a.dirty ? `<span class="cl-dirty">${t('ui.dirty')}</span>` : ''}</span>
-        ${a.summaryGist ? `<div class="cl-arc-gist">${escapeHtml(a.summaryGist)}</div>` : ''}
+        ${a.summaryGist ? `<div class="cl-arc-gist">${escapeHtml(a.summaryGist)}</div>` : `<p class="cl-empty">${t('ui.arcNoGist')}</p>`}
+        <button data-arc-regen="${a.id}" class="cl-arc-regen" title="${ta('ui.title.regenSummary')}">${t('ui.btn.regenSummary')}</button>
         <button data-arc-forget="${a.id}" class="cl-arc-forget" title="${ta('ui.title.forgetArc')}">${t('ui.btn.forget')}</button>
       </div>`).join('');
   }
@@ -422,10 +426,26 @@ function section(title, sub, inner, open) {
 function renderBufferHtml() {
   const buf = getBuffer();
   if (!buf.length) return `<p class="cl-empty">${t('ui.buffer.empty')}</p>`;
+  const kindLabel = {
+    goal: t('ui.bufkind.goal'), trait: t('ui.bufkind.trait'),
+    lore: t('ui.bufkind.lore'), thread: t('ui.bufkind.thread'),
+  };
+  const kindOpt = (v, cur) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${escapeHtml(kindLabel[v] ?? v)}</option>`;
+  const impOpt = (v, cur) => `<option value="${v}" ${Number(cur) === v ? 'selected' : ''}>${v}</option>`;
   return buf.slice().sort((a, b) => b.weight - a.weight).map((i) =>
-    `<div class="cl-bufitem"><span>(${escapeHtml(i.kind)}) ${escapeHtml(i.text)}</span>
-       <span class="cl-weight">w:${i.weight}</span>
-       <button data-rm="${i.id}" class="cl-rm">✕</button></div>`).join('');
+    `<div class="cl-bufitem" data-id="${i.id}">
+       <textarea class="cl-buf-text" data-buf-edit="${i.id}">${escapeHtml(i.text)}</textarea>
+       <div class="cl-buf-actions">
+         <select class="cl-mode" data-buf-kind="${i.id}" title="${ta('ui.title.bufKind')}">
+           ${BUFFER_KINDS.map((k) => kindOpt(k, i.kind)).join('')}
+         </select>
+         <select class="cl-mode" data-buf-imp="${i.id}" title="${ta('ui.title.bufImp')}">
+           ${[1, 2, 3].map((n) => impOpt(n, i.importance)).join('')}
+         </select>
+         <span class="cl-weight" title="${ta('ui.title.bufWeight')}">w:${Math.round(i.weight * 10) / 10}</span>
+         <button data-rm="${i.id}" class="cl-rm" title="${ta('ui.title.delete')}">✕</button>
+       </div>
+     </div>`).join('');
 }
 
 // --- Вкладка Saved (избранное + цитаты, фильтр-чипы) ---
@@ -464,12 +484,34 @@ function renderSavedHtml() {
 
 function wireBody(body, name) {
   if (name === 'memory') wireMemory(body);
-  else if (name === 'thoughts') {
-    body.querySelectorAll('[data-rm]').forEach((b) =>
-      b.addEventListener('click', async () => { await removeBufItem(b.dataset.rm); await switchTab('thoughts'); }));
-  } else {
+  else if (name === 'thoughts') wireThoughts(body);
+  else {
     wireSaved(body);
   }
+}
+
+function wireThoughts(body) {
+  // правка текста пункта: авто-высота + сохранение по change (blur/Enter)
+  const autoSize = (el) => { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; };
+  body.querySelectorAll('[data-buf-edit]').forEach((ta) => {
+    autoSize(ta);
+    ta.addEventListener('input', () => autoSize(ta));
+    ta.addEventListener('change', async () => {
+      await editBufItem(ta.dataset.bufEdit, { text: ta.value });
+    });
+  });
+  body.querySelectorAll('[data-buf-kind]').forEach((sel) =>
+    sel.addEventListener('change', async () => {
+      await editBufItem(sel.dataset.bufKind, { kind: sel.value });
+      await switchTab('thoughts');
+    }));
+  body.querySelectorAll('[data-buf-imp]').forEach((sel) =>
+    sel.addEventListener('change', async () => {
+      await editBufItem(sel.dataset.bufImp, { importance: Number(sel.value) });
+      await switchTab('thoughts');
+    }));
+  body.querySelectorAll('[data-rm]').forEach((b) =>
+    b.addEventListener('click', async () => { await removeBufItem(b.dataset.rm); await switchTab('thoughts'); }));
 }
 
 function wireMemory(body) {
@@ -525,6 +567,15 @@ function wireMemory(body) {
     b.addEventListener('click', async () => {
       await bulkSetArc(Number(b.dataset.arcForget), false);
       globalThis.toastr?.info?.(t('toast.arcMuted', { id: b.dataset.arcForget }));
+      await switchTab('memory');
+    }));
+  // регенерация саммари арки (ручной запуск — force=true, обходит lite и существующий gist)
+  body.querySelectorAll('[data-arc-regen]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const arcId = Number(b.dataset.arcRegen);
+      if (!Number.isFinite(arcId)) return;
+      await enqueue('arc-extract', { arcId, force: true });
+      globalThis.toastr?.success?.(t('toast.regenQueued'));
       await switchTab('memory');
     }));
 

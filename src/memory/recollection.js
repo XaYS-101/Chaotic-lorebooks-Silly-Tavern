@@ -126,16 +126,30 @@ export async function removeGist(id) {
 export async function renderForInjection(budget) {
   const s = getSettings();
   if (s.recollection?.enabled === false) return '';
-  const actives = getActive().slice().sort((a, b) => (a.arcId ?? 0) - (b.arcId ?? 0));
+  const actives = getActive().slice();
   if (!actives.length) return '';
 
-  const lines = [];
-  for (const r of actives) {
-    lines.push(`- ${r.gist}`);
-    for (const q of r.voiceQuotes || []) lines.push(`  » ${q}`);
-  }
-  const body = lines.join('\n');
   const tokenBudget = budget ?? s.recollection?.budget ?? 500;
+
+  // H5: для >5 активных огрызков применяем MMR-отбор (разнообразие),
+  // иначе — хронологический порядок (старое поведение).
+  let selected;
+  if (actives.length > 5) {
+    const now = Date.now();
+    const candidates = actives.map((r) => ({
+      text: [r.gist, ...(r.voiceQuotes || []).map((q) => `» ${q}`)].join('\n'),
+      recency: r.addedAt ? Math.max(0, 1 - (now - r.addedAt) / (1000 * 60 * 60 * 24 * 30)) : 0.5,
+      significance: typeof r.significance === 'number' ? r.significance : 0.5,
+    }));
+    const { mmrSelect } = await import('./context-budget.js');
+    selected = await mmrSelect(candidates, tokenBudget, 0.75);
+  } else {
+    selected = actives.slice().sort((a, b) => (a.arcId ?? 0) - (b.arcId ?? 0)).map((r) => ({
+      text: [r.gist, ...(r.voiceQuotes || []).map((q) => `» ${q}`)].join('\n'),
+    }));
+  }
+
+  const body = selected.map((s) => s.text).join('\n');
   const trimmed = await trimToBudget(body, tokenBudget);
   if (!trimmed) return '';
   return `[Recollections — condensed memory of earlier scenes]\n${trimmed}`;
