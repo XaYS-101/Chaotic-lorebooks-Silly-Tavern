@@ -90,8 +90,15 @@ export async function injectContext(genType) {
   // Global ceiling (Phase D): one target over all memory, filled by priority.
   // Off → behave like v0.7.0 (plain concatenation, no ceiling).
   if (s.contextBudget?.enabled) {
-    const { text } = await fitBudget(blocks, target, memBlock);
-    lastText = text;
+    try {
+      const { text } = await fitBudget(blocks, target, memBlock);
+      lastText = text;
+    } catch (e) {
+      // Never lose the whole injection on a budget error — fall back to plain concat.
+      console.warn('[ChaoticLorebooks] fitBudget failed, using unbudgeted memory:', e);
+      setLastReport(null);
+      lastText = blocks.map((b) => b.text).join('\n\n');
+    }
   } else {
     setLastReport(null);
     lastText = blocks.map((b) => b.text).join('\n\n');
@@ -106,6 +113,11 @@ function applyInjection(ctx, s, text, memBlock) {
   //   ctx.setExtensionPrompt(key, value, position, depth, scan, role)
   try {
     if (!ctx.setExtensionPrompt) return;
+    // Debug aid: log the actual position enum once, to diagnose version mismatches.
+    if (s.debug?.enabled && !applyInjection._logged) {
+      applyInjection._logged = true;
+      console.log('[ChaoticLorebooks] extension_prompt_types:', ctx.extension_prompt_types);
+    }
     // Checked against ST: IN_PROMPT=0, IN_CHAT=1, BEFORE_PROMPT=2.
     const pos = ctx.extension_prompt_types?.IN_PROMPT ?? 0;
     ctx.setExtensionPrompt(INJECT_KEY, text, pos, 1, false);

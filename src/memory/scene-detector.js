@@ -53,8 +53,11 @@ export function evaluate() {
   const newWordRatio = recentSet.size ? fresh / recentSet.size : 0;
 
   // adaptive signal: IDF-cosine over the chat itself → dissimilarity d.
-  const idf = buildIdf(chat.map((m) => contentTokens(m.mes)));
-  const cos = tfidfCosine(recent, prior, idf);
+  // Drop empty token docs (very short/system messages) so buildIdf/cosine can't yield NaN.
+  const tokenDocs = chat.map((m) => contentTokens(m.mes)).filter((toks) => toks.length);
+  const idf = tokenDocs.length ? buildIdf(tokenDocs) : buildIdf([['']]);
+  const cosRaw = tfidfCosine(recent, prior, idf);
+  const cos = Number.isFinite(cosRaw) ? cosRaw : 0;
   const d = 1 - cos;
 
   const sens = sd.sensitivity ?? 0.5;

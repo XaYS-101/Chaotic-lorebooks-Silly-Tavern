@@ -88,8 +88,9 @@ export async function maintain() {
   // Target hidden set: all within candidate arcs, but NOT in the live window.
   const target = new Set();
   for (const a of arcs) {
-    // from the newest slab, keep keepTail messages visible (bridge to raw window).
-    const hideEnd = a.end === newestEnd ? a.end - keepTail : a.end;
+    // Keep the last keepTail messages of EVERY hidden arc visible — bridges between
+    // arcs (gradual reveal). If keepTail covers the whole arc, nothing is hidden.
+    const hideEnd = Math.max(a.start - 1, a.end - keepTail);
     for (let i = a.start; i <= hideEnd; i++) {
       if (i >= visibleFloor) continue;       // in live window — don't touch
       if (pinned.has(i)) continue;           // pinned — immune

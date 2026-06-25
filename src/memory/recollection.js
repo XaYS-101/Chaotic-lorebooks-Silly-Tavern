@@ -149,31 +149,37 @@ export async function renderForInjection(budget) {
     }));
   }
 
-  const body = selected.map((s) => s.text).join('\n');
+  // Join with a blank line so each gist + its voiceQuotes form one block that
+  // trimToBudget keeps or drops whole (never a gist without its quotes).
+  const body = selected.map((s) => s.text).join('\n\n');
   const trimmed = await trimToBudget(body, tokenBudget);
   if (!trimmed) return '';
   return `[Recollections — condensed memory of earlier scenes]\n${trimmed}`;
 }
 
-/** Trim text to a token budget (ST's exact counter if available, else ~4 chars/token). */
+/**
+ * Trim text to a token budget (ST's exact counter if available, else ~4 chars/token).
+ * Operates on whole blocks (separated by a blank line) so a gist and its voiceQuotes
+ * are kept or dropped together.
+ */
 async function trimToBudget(text, tokenBudget) {
-  const lines = String(text).split('\n');
+  const blocks = String(text).split(/\n\n+/).filter(Boolean);
   const c = ctx();
   if (typeof c.getTokenCountAsync === 'function') {
-    let out = [];
-    for (const l of lines) {
-      const candidate = [...out, l].join('\n');
-      // count cumulatively; costly, but there are few lines
+    const out = [];
+    for (const b of blocks) {
+      const candidate = [...out, b].join('\n\n');
+      // count cumulatively; costly, but there are few blocks
       // eslint-disable-next-line no-await-in-loop
       const n = await c.getTokenCountAsync(candidate, 0).catch(() => candidate.length / 4);
       if (n > tokenBudget) break;
-      out.push(l);
+      out.push(b);
     }
-    return out.join('\n');
+    return out.join('\n\n');
   }
   const charBudget = Math.max(120, tokenBudget * 4);
   if (text.length <= charBudget) return text;
   let out = '';
-  for (const l of lines) { if (out.length + l.length + 1 > charBudget) break; out += (out ? '\n' : '') + l; }
+  for (const b of blocks) { if (out.length + b.length + 2 > charBudget) break; out += (out ? '\n\n' : '') + b; }
   return out;
 }

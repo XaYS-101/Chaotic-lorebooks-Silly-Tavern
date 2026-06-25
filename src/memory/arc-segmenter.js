@@ -63,9 +63,16 @@ export function getOpenArc() {
   return open;
 }
 
-/** Text of an arc's slab (by message indices). */
+/** Text of an arc's slab (by message indices). Clamps to chat bounds (forks/reconcile). */
 function slabText(start, end) {
-  return chat().slice(start, end + 1).map((m) => `${m?.name}: ${m?.mes}`).join('\n');
+  const arr = chat();
+  const len = arr.length;
+  if (!len) return '';
+  const s = Math.max(0, start);
+  const e = Math.min(len - 1, end);
+  if (s > e) return '';
+  if (start !== s || end !== e) console.warn(`[ChaoticLorebooks] slabText bounds clamped: [${start}..${end}] -> [${s}..${e}]`);
+  return arr.slice(s, e + 1).map((m) => `${m?.name}: ${m?.mes}`).join('\n');
 }
 
 /** Whether a boundary marker exists in the range (start..end inclusive). */
@@ -112,14 +119,18 @@ export async function onMessage() {
 
   if (!capReached && !marker) { await persist(); return null; }
 
-  const sealed = await sealReady(capReached ? 'cap' : 'marker');
+  const sealed = await sealReady(capReached ? 'cap' : 'marker', wm);
   await persist();
   return sealed;
 }
 
-/** Seal the open arc up to the watermark. Returns the arc or null. */
-export async function sealReady(reason = 'manual') {
-  const wm = getWatermark();
+/**
+ * Seal the open arc up to the watermark. Returns the arc or null.
+ * Pass the watermark explicitly (from onMessage) to avoid a re-read race; omit it
+ * for manual calls, where re-reading from metadata is fine.
+ */
+export async function sealReady(reason = 'manual', watermark) {
+  const wm = watermark ?? getWatermark();
   const open = getOpenArc();
   if (open.start > wm) return null;
 

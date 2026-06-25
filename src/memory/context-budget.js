@@ -42,7 +42,14 @@ export async function estimate(text) {
       if (Number.isFinite(n)) return n;
     } catch { /* fall back to the rough estimate */ }
   }
-  return Math.ceil(t.length / 4);
+  return Math.ceil(t.length / charsPerToken(t));
+}
+
+/** Rough chars-per-token: Cyrillic packs denser than Latin, so use a smaller divisor. */
+function charsPerToken(t) {
+  const s = String(t ?? '');
+  const cyr = (s.match(/[а-яё]/gi) || []).length;
+  return (s.length && cyr / s.length > 0.3) ? 2.5 : 4;
 }
 
 /**
@@ -56,7 +63,7 @@ export async function estimate(text) {
 export async function condense(text, tokenBudget) {
   const lines = String(text ?? '').split('\n');
   const header = lines[0] ?? '';
-  const charBudget = Math.max(40, Math.floor((tokenBudget || 0) * 4 * 0.9));
+  const charBudget = Math.max(40, Math.floor((tokenBudget || 0) * charsPerToken(text) * 0.9));
   if (header.length > charBudget) return '';
   let out = header;
   for (let i = 1; i < lines.length; i++) {
@@ -241,9 +248,13 @@ export async function mmrSelect(candidates, maxTokens, lambda = 0.7) {
     }
     if (!best) break;
 
-    // Check whether it fits the budget.
+    // Check whether it fits the budget. If not, skip this one and try smaller
+    // candidates instead of stopping — otherwise the budget stays underfilled.
     const tokens = await estimate(best.text);
-    if (usedTokens + tokens > maxTokens && selected.length > 0) break; // doesn't fit — stop
+    if (usedTokens + tokens > maxTokens) {
+      unselected.splice(bestIdx, 1);
+      continue;
+    }
 
     selected.push(best);
     usedTokens += tokens;

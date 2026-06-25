@@ -36,7 +36,7 @@ import { purgeCurrentChatIfArmed } from './src/core/purge.js';
 
 // --- Global prompt interceptor (name matches manifest) ---
 // Runs before the generation request: assemble and inject context here.
-globalThis.chaoticLorebooks_interceptor = async function (chat, contextSize, abort, type) {
+const clInterceptor = async function (chat, contextSize, abort, type) {
   try {
     const s = getSettings();
     if (!s.enabled || !isChatEnabled()) return;   // master toggle OR disabled for this chat
@@ -46,10 +46,18 @@ globalThis.chaoticLorebooks_interceptor = async function (chat, contextSize, abo
     console.warn('[ChaoticLorebooks] interceptor error:', e);
   }
 };
+globalThis.chaoticLorebooks_interceptor = clInterceptor;
 
 function init() {
   const ctx = SillyTavern.getContext();
   const { eventSource, event_types } = ctx;
+
+  // The manifest binds the interceptor by this exact global name. If it's missing
+  // (e.g. the extension folder was renamed and the manifest no longer matches),
+  // injection silently stops — warn so it's diagnosable.
+  if (globalThis.chaoticLorebooks_interceptor !== clInterceptor) {
+    console.warn('[ChaoticLorebooks] interceptor name mismatch — context injection disabled. Keep the extension folder named "chaotic-lorebooks".');
+  }
 
   getSettings();              // init defaults
   ensureDrawer();             // create (hidden) tree

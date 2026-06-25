@@ -191,7 +191,7 @@ function uniqueBookName(base) {
     const cand = `${base} #${i}`;
     if (!existing.has(cand)) return cand;
   }
-  return `${base} #${Date.now ? '' : ''}new`;   // practically unreachable
+  return `${base} #${Date.now()}`;   // fallback: timestamp keeps it unique on collision
 }
 
 /**

@@ -24,6 +24,7 @@ import { extractEntities } from './entity-extract.js';
 import { loadGraph } from './knowledge-graph.js';
 import { scoreSignificance } from './deep-extractor.js';
 import { log as logActivity } from './activity-log.js';
+import { getBuffer } from './thought-buffer.js';
 
 const SCHEMA = {
   type: 'object',
@@ -66,20 +67,40 @@ export async function summarizeArc(arcId, opts = {}) {
   const text = arcText(arcId);
   if (!text || text.length < 20) { await setSummaryGist(arcId, ''); return false; }
 
-  // alias-aware hint of known entities — anti-hallucination for triples.
+  // Anti-hallucination hint: rank known entities by relevance to this arc (names
+  // present in the scene first) so the hint stays useful as the graph grows.
   let knownNames = [];
-  try { knownNames = Object.values((await loadGraph()).nodes).map((n) => n.name); } catch { /* ok */ }
+  try {
+    const names = Object.values((await loadGraph()).nodes).map((n) => n.name).filter(Boolean);
+    const norm = text.toLowerCase();
+    knownNames = names
+      .map((name) => ({ name, hit: norm.includes(name.toLowerCase()) }))
+      .sort((a, b) => (b.hit - a.hit))
+      .map((x) => x.name)
+      .slice(0, 40);
+  } catch { /* ok */ }
   const quotesN = Math.max(2, Math.min(4, s.recollection?.voiceQuotesPerArc ?? 3));
 
+  // Active goals from the thought buffer — the LLM marks progress/completion in the gist.
+  const goals = getBuffer().filter((i) => i.kind === 'goal' && i.weight > 0);
+  const goalsBlock = goals.length
+    ? `Active character goals (note any progress, completion, or newly emerged goals):\n`
+      + `${goals.map((g) => `- [${(g.importance || 1) >= 3 ? 'MAIN' : 'side'}] ${g.text}`).join('\n')}\n\n`
+    : '';
+
   const system = 'You compress one scene ("arc") of a roleplay into durable memory. '
+    + 'Prioritize lasting content: goals and their progress, relationship changes, facts that '
+    + 'may resurface later, and callbacks to earlier events; omit unchanging background. '
     + 'Output JSON only with: '
     + '"gist" (1-3 sentences, the lasting consequences of the scene, not a play-by-play); '
     + `"voiceQuotes" (${quotesN} VERBATIM short lines characters actually said, preserving voice); `
     + '"triples" (relationship changes as {from, rel, to, weight 1-10}; use SHORT relations '
     + 'like trusts/fears/loves/owes/allied_with/located_in; prefer the entity names listed if they match). '
+    + 'If active goals are provided, note any progress or completion in the gist. '
     + 'Do NOT invent entities not present in the scene.';
-  const prompt = (knownNames.length ? `Known entities: ${knownNames.slice(0, 30).join(', ')}\n\n` : '')
-    + `Scene transcript:\n${text.slice(0, 6000)}`;
+  const prompt = (knownNames.length ? `Known entities: ${knownNames.join(', ')}\n\n` : '')
+    + goalsBlock
+    + `Scene transcript:\n${text}`;
 
   let parsed;
   try {
@@ -227,8 +248,8 @@ function validateQuotes(quotes, arcText) {
   const norm = String(arcText ?? '').toLowerCase().replace(/[.,!?;:'"()\-—«»„"`'']/g, '');
   return quotes.filter((q) => {
     const qNorm = String(q).toLowerCase().replace(/[.,!?;:'"()\-—«»„"`'']/g, '');
-    // Tolerance: quote ≥20 chars and a substring of the cleaned text.
-    return qNorm.length >= 8 && norm.includes(qNorm.slice(0, Math.min(qNorm.length, 60)));
+    // Quote must be ≥8 chars and appear in full within the cleaned arc text.
+    return qNorm.length >= 8 && norm.includes(qNorm);
   });
 }
 

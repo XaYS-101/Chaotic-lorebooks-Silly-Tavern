@@ -63,6 +63,7 @@ const DEFAULTS = Object.freeze({
     enabled: true,
     limitEnabled: true,   // whether to cap buffer size (user's choice)
     maxItems: 7,          // size cap when limitEnabled (anti-loop)
+    maxConstants: 3,      // separate cap on "constant" items so they don't crowd out regular thoughts
     decayPerTurn: 1,      // how much an unconfirmed item's weight drops per turn
     dropThreshold: 0,     // weight <= threshold → item drops out of the buffer
     startWeight: 5,       // weight of a new/confirmed item

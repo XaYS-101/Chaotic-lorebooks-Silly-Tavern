@@ -63,6 +63,16 @@ function underBudget() {
 /** A handler calls this before a paid LLM call (for budget accounting). */
 export function noteLlmCall() { callTimestamps.push(nowTs()); }
 
+// When the hourly budget is exhausted, drain() exits. Schedule a one-shot re-check
+// so the queue resumes once the oldest call ages out (no external enqueue needed).
+let budgetTimer = null;
+function scheduleBudgetRecheck() {
+  if (budgetTimer) return;
+  const oldest = callTimestamps.length ? Math.min(...callTimestamps) : nowTs();
+  const wait = Math.max(30_000, Math.min(300_000, (oldest + 3600_000) - nowTs() + 1000));
+  budgetTimer = setTimeout(() => { budgetTimer = null; start(); }, wait);
+}
+
 let running = 0;
 let draining = false;
 
@@ -117,7 +127,7 @@ async function drain() {
       break;
     }
     if (running >= concurrency) break;
-    if (!underBudget()) break;                        // hit the budget cap
+    if (!underBudget()) { scheduleBudgetRecheck(); break; } // hit the budget cap — resume later
 
     running++;
     next.status = 'running';
@@ -143,9 +153,18 @@ async function runJob(job) {
     job.status = job.tries >= 3 ? 'failed' : 'pending';   // up to 3 retries
     console.warn(`[ChaoticLorebooks] job ${job.kind} failed (try ${job.tries}):`, e);
   } finally {
+    if (job.status === 'failed') notifyJobFailed(job);
     pruneDone();
     await persist();
   }
+}
+
+/** Surface a permanently failed job to the user (toast + activity log). */
+function notifyJobFailed(job) {
+  try { globalThis.toastr?.warning?.(`Background memory task "${job.kind}" failed — see console.`); } catch { /* ok */ }
+  import('../memory/activity-log.js')
+    .then((m) => m.log?.({ kind: 'job-failed', detail: `${job.kind}: ${job.error || 'error'}` }))
+    .catch(() => { /* activity log optional */ });
 }
 
 // Keep the queue from bloating: drop done/failed older than 5 min (history → activity-log later).

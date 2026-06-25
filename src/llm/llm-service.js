@@ -17,6 +17,9 @@ export async function agentRequest({ system, prompt, jsonSchema, retries = 1 }) 
   const schemaHint = jsonSchema ? schemaAsPromptHint(jsonSchema) : '';
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Grow the output budget on retries so a JSON reply truncated at the cap
+    // (finish_reason=length) gets room to complete instead of failing identically.
+    const maxTokens = Math.min(16384, 4096 * (attempt + 1));
     try {
       let result = null;
 
@@ -24,7 +27,7 @@ export async function agentRequest({ system, prompt, jsonSchema, retries = 1 }) 
       if (agentSource === 'custom') {
         const p = (s.api?.profiles || []).find((x) => x && x.id === s.api?.activeProfileId);
         if (p?.url && p?.model) {
-          result = await customEndpointRequest(p, system, prompt, jsonSchema, schemaHint);
+          result = await customEndpointRequest(p, system, prompt, jsonSchema, schemaHint, maxTokens);
         }
         if (result == null) {
           result = await fallbackQuiet(ctx, system, prompt, jsonSchema, schemaHint);
@@ -39,7 +42,7 @@ export async function agentRequest({ system, prompt, jsonSchema, retries = 1 }) 
             { role: 'system', content: sys },
             { role: 'user', content: prompt },
           ],
-          4096,
+          maxTokens,
         );
         result = typeof res === 'string' ? res : (res?.content ?? res?.text ?? null);
       } else {
@@ -47,7 +50,15 @@ export async function agentRequest({ system, prompt, jsonSchema, retries = 1 }) 
         result = await fallbackQuiet(ctx, system, prompt, jsonSchema, schemaHint);
       }
 
-      if (result != null) return result;
+      if (result != null) {
+        // If a schema was requested but the reply doesn't parse (often a truncated
+        // JSON), retry with a larger budget rather than returning broken output.
+        if (jsonSchema && parseJsonLoose(result) == null && attempt < maxAttempts - 1) {
+          // fall through to the retry/backoff below
+        } else {
+          return result;
+        }
+      }
     } catch (err) {
       console.warn(`[ChaoticLorebooks] agentRequest attempt ${attempt + 1}/${maxAttempts} failed:`, err);
     }
@@ -74,7 +85,7 @@ async function fallbackQuiet(ctx, system, prompt, jsonSchema, schemaHint) {
 // POST to a custom OpenAI-compatible /chat/completions. Never throws — returns
 // null on any error so the caller falls back. p: { url, key?, model }.
 // jsonSchema: adds response_format (best-effort); schemaHint: appended to system prompt.
-async function customEndpointRequest(p, system, prompt, jsonSchema, schemaHint) {
+async function customEndpointRequest(p, system, prompt, jsonSchema, schemaHint, maxTokens = 4096) {
   try {
     const url = normalizeChatUrl(p.url);
     const headers = { 'Content-Type': 'application/json' };
@@ -86,7 +97,7 @@ async function customEndpointRequest(p, system, prompt, jsonSchema, schemaHint) 
         { role: 'system', content: sys },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 4096,
+      max_tokens: maxTokens,
     };
     // Best-effort structured output for OpenAI-compatible endpoints.
     // json_object is more widely supported than json_schema across providers.
@@ -119,15 +130,23 @@ function normalizeChatUrl(raw) {
   return `${u}/v1/chat/completions`;                      // bare host → default path
 }
 
-// Tolerant JSON parse of a model reply (strips ```json fences).
+// Tolerant JSON parse of a model reply. Strips a WRAPPING code fence only (not
+// backticks inside string values), then falls back to extracting the outermost
+// JSON object/array.
 export function parseJsonLoose(text) {
   if (!text) return null;
+  let clean = String(text).trim();
+  const fence = clean.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fence) clean = fence[1].trim();
   try {
-    const clean = String(text).replace(/```json|```/g, '').trim();
     return JSON.parse(clean);
-  } catch {
-    return null;
+  } catch { /* try substring extraction below */ }
+  const first = clean.search(/[{[]/);
+  const last = Math.max(clean.lastIndexOf('}'), clean.lastIndexOf(']'));
+  if (first >= 0 && last > first) {
+    try { return JSON.parse(clean.slice(first, last + 1)); } catch { /* ignore */ }
   }
+  return null;
 }
 
 /** Compact one-line schema reminder for paths that can't pass structured-output natively. */

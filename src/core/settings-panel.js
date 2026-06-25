@@ -92,8 +92,14 @@ function setByPath(obj, path, val) {
 }
 function coerce(type, el) {
   if (type === 'bool') return el.checked;
-  if (type === 'int') return parseInt(el.value, 10) || 0;
-  if (type === 'float') return parseFloat(el.value) || 0;
+  // Empty/invalid numeric field → undefined so the caller keeps the current value
+  // (an empty box must not silently become 0).
+  if (type === 'int' || type === 'float') {
+    const raw = String(el.value).trim();
+    if (raw === '') return undefined;
+    const n = type === 'int' ? parseInt(raw, 10) : parseFloat(raw);
+    return Number.isFinite(n) ? n : undefined;
+  }
   return el.value;
 }
 
@@ -479,7 +485,9 @@ function bindInputs() {
     const el = document.getElementById(id);
     if (!el) continue;
     el.addEventListener('change', () => {
-      setByPath(getSettings(), path, coerce(type, el));
+      const val = coerce(type, el);
+      if (val === undefined) { fillInputs(); return; }   // empty/invalid → restore shown value
+      setByPath(getSettings(), path, val);
       saveSettings();
     });
   }

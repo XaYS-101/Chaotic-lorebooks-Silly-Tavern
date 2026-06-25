@@ -118,7 +118,7 @@ export async function tickBuffer() {
       continue;
     }
 
-    // ACT-R: A = ln(Σ (turn - t_j)^(-d))
+    // ACT-R base-level activation: A = ln(Σ (turn - t_j)^(-d)).
     const mentions = Array.isArray(it.mentionTurns) && it.mentionTurns.length
       ? it.mentionTurns : [it.createdTurn || it.lastSeen || turn];
     let actrSum = 0;
@@ -127,13 +127,15 @@ export async function tickBuffer() {
       actrSum += Math.pow(lag, -ACTR_DECAY);
     }
 
+    // Apply the ln() compression so a long mention history doesn't dominate;
+    // +1 keeps activation non-negative for normalization.
+    const activation = Math.log(1 + actrSum);
     // Salience: importance × kindWeight → half-life factor.
     const salience = (it.importance || 1) * (KIND_SALIENCE[it.kind] ?? 1);
-    // Normalization: use all-at-lag=1 as the theoretical max for a fixed mention
-    // count, so items with a long history aren't penalized by a larger denominator.
-    const refContrib = Math.pow(1, -ACTR_DECAY); // = 1.0 when d=0.5
-    const maxSum = mentions.length * refContrib;
-    const norm = maxSum > 0 ? Math.min(1, actrSum / maxSum) * salience / 3 : 0;
+    // Normalize against all-at-lag=1 (the theoretical max for this mention count),
+    // so items with a long history aren't penalized by a larger denominator.
+    const maxActivation = Math.log(1 + mentions.length);
+    const norm = maxActivation > 0 ? Math.min(1, activation / maxActivation) * salience / 3 : 0;
     it.weight = norm * ceilingOf(it);
     it.lastSeen = turn;
   }
@@ -183,7 +185,10 @@ function enforceCap(buf) {
   // with constants ≥ maxItems the buffer would grow unbounded. Keep top-by-weight
   // constants, then fill with regular items up to maxItems. Hard guarantee: buf.length ≤ maxItems.
   const byWeight = (a, b) => (b.weight - a.weight) || (b.lastSeen - a.lastSeen);
-  const consts = buf.filter(isConstant).sort(byWeight).slice(0, s.maxItems);
+  // Cap constants separately (maxConstants) so they can't crowd out regular
+  // thoughts entirely; still bounded by maxItems overall.
+  const constCap = Math.max(0, Math.min(s.maxConstants ?? s.maxItems, s.maxItems));
+  const consts = buf.filter(isConstant).sort(byWeight).slice(0, constCap);
   const rest = buf.filter((it) => !isConstant(it)).sort(byWeight);
   const room = Math.max(0, s.maxItems - consts.length);
   const next = [...consts, ...rest.slice(0, room)];

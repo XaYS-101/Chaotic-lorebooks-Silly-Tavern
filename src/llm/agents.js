@@ -57,6 +57,8 @@ export async function scout() {
   const parsed = parseJsonLoose(raw);
   trace('agent.resp', { kind: 'scout', ok: !!(parsed && Array.isArray(parsed.branches)) });
   if (!parsed || !Array.isArray(parsed.branches)) return null;
+  // Hard cap regardless of what the model returned — bound the injection size.
+  parsed.branches = parsed.branches.slice(0, 5);
   return parsed;
 }
 
@@ -74,7 +76,7 @@ const BUF_LAST_IDX_KEY = 'chaoticLorebooks_lastBufferUpdateIdx';
 const SCOUT_SCHEMA = {
   type: 'object',
   properties: {
-    branches: { type: 'array', items: { type: 'string' } },
+    branches: { type: 'array', items: { type: 'string' }, maxItems: 5 },
     depth: { type: 'integer', minimum: 1, maximum: 3 },
     reason: { type: 'string' },
   },
@@ -87,7 +89,13 @@ export async function updateBufferFromScene() {
   const chatLen = (ctx.chat ?? []).length;
   // VoI gate: skip if already processed this exact chat position (debounce).
   const lastIdx = Number(ctx.chatMetadata?.[BUF_LAST_IDX_KEY]) || 0;
-  if (chatLen <= lastIdx && chatLen > 0) return;
+  // If the chat shrank (messages deleted / branch), the saved index is stale —
+  // reset it and proceed, otherwise the agent would stall permanently.
+  if (chatLen < lastIdx) {
+    if (ctx.chatMetadata) ctx.chatMetadata[BUF_LAST_IDX_KEY] = 0;
+  } else if (chatLen <= lastIdx && chatLen > 0) {
+    return;
+  }
 
   const system = 'Track the character\'s evolving working memory for a roleplay. '
     + 'From the recent scene, output 1-2 SHORT items worth keeping. '

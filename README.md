@@ -43,6 +43,29 @@ that flips the right toggles for you:
 Everything degrades gently. If there's no LLM or profile available, the agent layer
 falls back to cheap local retrieval and the chat is never blocked.
 
+### What each mode includes
+
+| Capability | Lite | Balanced | Autonomous |
+|---|---|---|---|
+| Thought buffer (incl. goals) | ✅ | ✅ | ✅ |
+| Favorites & quotes (★) | ✅ | ✅ | ✅ |
+| Recency retrieval (ToC) | ✅ | ✅ | ✅ |
+| Arc sealing (cap / marker) | ✅ | ✅ | ✅ |
+| Auto-hide with per-arc keepTail | ✅ immediate | ✅ after summary | ✅ after summary |
+| Agentic scout retrieval (LLM) | ❌ | ✅ every ~3 turns | ✅ every ~2 turns |
+| Arc summarization (LLM) | ❌ | ✅ cheap | ✅ |
+| Goals fed into summarization | ❌ | ✅ | ✅ |
+| Knowledge graph (triple merge) | ❌ | ✅ | ✅ |
+| Recollections (arc gists) | ❌ | ✅ | ✅ |
+| Context budget ceiling | ❌ | ✅ | ✅ |
+| Deep-extract (anti-hallucination, significance) | ❌ | ❌ | ✅ |
+| Cross-arc drift audit | ❌ | ❌ | ✅ |
+| Two-stage pipeline cache | ❌ | ❌ | ✅ |
+| Background LLM cost | none | low (scout + arc summary) | ~30/hr, throttled |
+
+Slash commands, favorites, the memory drawer, backups, and the branch/global
+safety nets work in **every** mode.
+
 * * *
 
 ## Features in detail
@@ -74,6 +97,11 @@ window small. That window size is the real lever on prompt size. A safety gate o
 hides messages **after** they're captured into memory, so it never touches the live
 tail (swipes and edits) or anything pinned. You can undo it any time with **Reveal
 hidden** or `/cl-reveal`.
+
+Hiding is **gradual**, not all-or-nothing. Each hidden arc keeps its **last few
+messages visible** (a `keepTail`, default 2), forming a bridge into the next arc, and
+in place of the hidden bulk the model sees the arc's **gist** plus a couple of verbatim
+**quotes**, so the thread never snaps.
 
 ### 4. Knowledge graph & active retrieval
 Instead of folders, the model sees relations: `Sable —trusts→ Ren (6/10, since arc 3)`.
@@ -181,6 +209,13 @@ This is a core design rule, not an afterthought:
 - **Autonomous mode costs calls.** They're throttled (two at a time at most, with an
   hourly budget cap) and they run off the hot path, so they never block your reply.
 - **It's dense on mobile.** The drawer is mobile-first, but it does surface a lot at once.
+- **Don't rename the extension folder.** The prompt interceptor is bound by a fixed
+  global name in `manifest.json`; renaming the folder can silently break context
+  injection (a console warning is logged if the name no longer matches).
+- **Custom endpoint keys are stored in plain text.** If you use a self-contained custom
+  endpoint instead of an ST Connection Profile, its API key sits unencrypted in
+  SillyTavern's settings, like any client-side extension. Prefer a Connection Profile
+  where you can.
 
 * * *
 

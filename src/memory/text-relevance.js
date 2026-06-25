@@ -55,7 +55,15 @@ function stemEn(w) {
   if (w.length <= 4) return w;
   for (const suf of ['ization', 'iveness', 'fulness', 'ousness', 'ational', 'ation',
     'ments', 'ment', 'ness', 'ing', 'edly', 'ied', 'ies', 'ed', 'es', 'ly', 's']) {
-    if (w.endsWith(suf) && w.length - suf.length >= 3) return w.slice(0, -suf.length);
+    if (w.endsWith(suf) && w.length - suf.length >= 3) {
+      let base = w.slice(0, -suf.length);
+      // After -ing/-ed, undo consonant doubling so the stem matches the base form
+      // (running→run, stopped→stop).
+      if ((suf === 'ing' || suf === 'ed') && /([bdgklmnprt])\1$/.test(base)) {
+        base = base.slice(0, -1);
+      }
+      return base;
+    }
   }
   return w;
 }
@@ -83,12 +91,13 @@ export function isProperNoun(w) {
   return true;
 }
 
-/** Content tokens: lowercased, no stopwords, longer than 3 chars, STEMMED. */
+/** Content tokens: lowercased, no stopwords, ≥3 chars, STEMMED.
+ *  (3-char words like "меч"/"щит"/"ice"/"axe" are kept — they're often key nouns.) */
 export function contentTokens(text) {
   return String(text || '')
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length > 3 && !STOP.has(w))
+    .filter((w) => w.length > 2 && !STOP.has(w))
     .map(stem);
 }
 
